@@ -8,7 +8,7 @@ export async function getRepositoryDependencies(token: string): Promise<string[]
   const packageNames = new Set<string>(); // A Set automatically prevents duplicates
 
   try {
-    core.info(`🗺️ Component 3: Waking up Dependency Mapper for ${owner}/${repo}...`);
+    core.info(`Component 3: Waking up Dependency Mapper for ${owner}/${repo}...`);
 
     // GraphQL query to fetch the repository's native Dependency Graph
     const query = `

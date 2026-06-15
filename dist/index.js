@@ -30074,7 +30074,7 @@ async function getRepositoryDependencies(token) {
     const { owner, repo } = github.context.repo;
     const packageNames = new Set(); // A Set automatically prevents duplicates
     try {
-        core.info(`🗺️ Component 3: Waking up Dependency Mapper for ${owner}/${repo}...`);
+        core.info(`Component 3: Waking up Dependency Mapper for ${owner}/${repo}...`);
         // GraphQL query to fetch the repository's native Dependency Graph
         const query = `
       query($owner: String!, $repo: String!) {
@@ -30219,6 +30219,78 @@ async function detectEcosystems(workspacePath) {
 
 /***/ }),
 
+/***/ 7213:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.filterAdvisories = filterAdvisories;
+const core = __importStar(__nccwpck_require__(7484));
+function filterAdvisories(advisories, thresholdInput, localDependencies) {
+    core.info(`Component 4: Waking up Filter (Target Threshold: ${thresholdInput})...`);
+    // Assign a mathematical weight to each severity level
+    const severityWeights = {
+        'LOW': 1,
+        'MODERATE': 2,
+        'HIGH': 3,
+        'CRITICAL': 4
+    };
+    // Default to 0 (allow everything) if the user provides a weird input
+    const targetWeight = severityWeights[thresholdInput.toUpperCase()] || 0;
+    const filteredAdvisories = advisories.filter(adv => {
+        // 1. Check Severity
+        const advWeight = severityWeights[adv.severity?.toUpperCase()] || 0;
+        const meetsSeverity = advWeight >= targetWeight;
+        // 2. Check Relevance (Is this vulnerable package actually in our repo?)
+        const packageName = adv.packageName?.toLowerCase();
+        // If localDependencies is empty (e.g. API failed), we assume it's relevant to be safe.
+        // Otherwise, we mandate an exact match.
+        const isRelevant = localDependencies.length === 0 || localDependencies.includes(packageName);
+        return meetsSeverity && isRelevant;
+    });
+    const droppedCount = advisories.length - filteredAdvisories.length;
+    core.info(`Filtered out ${droppedCount} alerts (either below threshold or not used in your code).`);
+    core.info(`${filteredAdvisories.length} severe alerts apply directly to this codebase.`);
+    return filteredAdvisories;
+}
+
+
+/***/ }),
+
 /***/ 9407:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -30262,20 +30334,18 @@ const core = __importStar(__nccwpck_require__(7484));
 const language_detector_1 = __nccwpck_require__(6303);
 const alert_fetcher_1 = __nccwpck_require__(884);
 const dependency_mapper_1 = __nccwpck_require__(645);
+const vulnerability_filter_1 = __nccwpck_require__(7213);
 async function main() {
     try {
         core.info('CTI Vulnerability Scanner Waking Up...');
-        // Read inputs passed from the test repo workflow
         const token = core.getInput('github_token', { required: true });
         const threshold = core.getInput('severity_threshold');
-        core.setSecret(token); // Safely mask the token
+        core.setSecret(token);
         core.info(`Target Threshold: ${threshold}`);
-        // Locate where the test repo's code is checked out
         const workspacePath = process.env.GITHUB_WORKSPACE || process.cwd();
         // --- COMPONENT 1: LANGUAGE & SBOM DETECTOR ---
         const { ecosystems: detectedEcosystems, hasSbom } = await (0, language_detector_1.detectEcosystems)(workspacePath);
         core.info(`Active Ecosystems: ${JSON.stringify(detectedEcosystems)} | SBOM Present: ${hasSbom}`);
-        // Stop sign
         if (detectedEcosystems.length === 0) {
             core.info('No ecosystems to analyze. Exiting successfully.');
             return;
@@ -30283,7 +30353,6 @@ async function main() {
         core.info('Component 1 finished successfully.');
         // --- COMPONENT 2: ALERT FETCHER ---
         const rawAdvisories = await (0, alert_fetcher_1.fetchRecentAdvisories)(token, detectedEcosystems);
-        // Just printing the very first threat to prove we got the data
         if (rawAdvisories.length > 0) {
             core.info(`Sample Threat Fetched: ${rawAdvisories[0].summary} (Severity: ${rawAdvisories[0].severity})`);
         }
@@ -30300,6 +30369,16 @@ async function main() {
             core.info('No local dependencies mapped.');
         }
         core.info('Component 3 finished successfully.');
+        // --- COMPONENT 4: VULNERABILITY FILTER ---
+        const finalThreats = (0, vulnerability_filter_1.filterAdvisories)(rawAdvisories, threshold, localDependencies);
+        if (finalThreats.length === 0) {
+            core.info('No matching vulnerabilities found in your dependencies. Your codebase is safe!');
+        }
+        else {
+            core.info(`TOP THREAT DETECTED IN YOUR CODE: ${finalThreats[0].packageName} (${finalThreats[0].severity})`);
+        }
+        core.info('Component 4 finished successfully.');
+        core.info('Pipeline finished successfully.');
     }
     catch (error) {
         if (error instanceof Error) {
