@@ -1,0 +1,20 @@
+name: 'CTI Vulnerability Remediation'
+description: 'Autonomous CTI pipeline for immediate remediation of emerging vulnerabilities.'
+author: 'Anatoli'
+
+inputs:
+  github_token:
+    description: 'GitHub API token for pulling dependency graphs and fetching advisories'
+    required: true
+  severity_threshold:
+    description: 'Minimum contextual severity to process (CRITICAL, HIGH, MEDIUM, LOW)'
+    required: false
+    default: 'HIGH'
+  dry_run:
+    description: 'If true, scans and patches locally but does not create a PR'
+    required: false
+    default: 'false'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
