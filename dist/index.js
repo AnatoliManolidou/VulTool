@@ -30026,6 +30026,99 @@ async function fetchRecentAdvisories(token, ecosystems) {
 
 /***/ }),
 
+/***/ 241:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.assessContextualRisk = assessContextualRisk;
+const fs = __importStar(__nccwpck_require__(9896));
+const path = __importStar(__nccwpck_require__(6928));
+const core = __importStar(__nccwpck_require__(7484));
+function assessContextualRisk(threats, workspacePath, ecosystems) {
+    core.info('Component 5: Waking up Contextual Risk Solver...');
+    const devDependencies = new Set();
+    try {
+        // Dynamically parse dev dependencies based on the ecosystems detected in Component 1
+        if (ecosystems.includes('npm')) {
+            const pkgPath = path.join(workspacePath, 'package.json');
+            if (fs.existsSync(pkgPath)) {
+                const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+                Object.keys(pkg.devDependencies || {}).forEach(dep => devDependencies.add(dep.toLowerCase()));
+            }
+        }
+        if (ecosystems.includes('pip')) {
+            // Python typically separates dev tools into requirements-dev.txt
+            const reqDevPath = path.join(workspacePath, 'requirements-dev.txt');
+            if (fs.existsSync(reqDevPath)) {
+                const content = fs.readFileSync(reqDevPath, 'utf8');
+                content.split('\n').forEach(line => {
+                    const cleanName = line.split(/[=<>~]/)[0].trim().toLowerCase();
+                    if (cleanName)
+                        devDependencies.add(cleanName);
+                });
+            }
+        }
+        // As you expand to Go, Rust, etc., you just add their specific parser blocks here.
+    }
+    catch (e) {
+        core.warning('Could not parse local manifests for context assessment. Defaulting to HIGH risk for all threats.');
+    }
+    const assessedThreats = threats.map(threat => {
+        const isDev = devDependencies.has(threat.packageName.toLowerCase());
+        // If we can prove it is a dev dependency, reduce the risk. Otherwise, assume it is in production.
+        const contextTag = isDev ? 'REDUCED RISK (Dev Environment)' : 'HIGH RISK (Production Environment)';
+        return {
+            ...threat,
+            contextualRisk: contextTag,
+            isDevDependency: isDev
+        };
+    });
+    core.info(`Assessed context for ${assessedThreats.length} verified threats.`);
+    // Print the first assessed threat to prove it worked
+    if (assessedThreats.length > 0) {
+        core.info(`Context Result: ${assessedThreats[0].packageName} ➔ ${assessedThreats[0].contextualRisk}`);
+    }
+    return assessedThreats;
+}
+
+
+/***/ }),
+
 /***/ 645:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -30335,6 +30428,7 @@ const language_detector_1 = __nccwpck_require__(6303);
 const alert_fetcher_1 = __nccwpck_require__(884);
 const dependency_mapper_1 = __nccwpck_require__(645);
 const vulnerability_filter_1 = __nccwpck_require__(7213);
+const contextual_risk_solver_1 = __nccwpck_require__(241); // <-- NEW IMPORT
 async function main() {
     try {
         core.info('CTI Vulnerability Scanner Waking Up...');
@@ -30345,39 +30439,28 @@ async function main() {
         const workspacePath = process.env.GITHUB_WORKSPACE || process.cwd();
         // --- COMPONENT 1: LANGUAGE & SBOM DETECTOR ---
         const { ecosystems: detectedEcosystems, hasSbom } = await (0, language_detector_1.detectEcosystems)(workspacePath);
-        core.info(`Active Ecosystems: ${JSON.stringify(detectedEcosystems)} | SBOM Present: ${hasSbom}`);
         if (detectedEcosystems.length === 0) {
             core.info('No ecosystems to analyze. Exiting successfully.');
             return;
         }
-        core.info('Component 1 finished successfully.');
         // --- COMPONENT 2: ALERT FETCHER ---
         const rawAdvisories = await (0, alert_fetcher_1.fetchRecentAdvisories)(token, detectedEcosystems);
-        if (rawAdvisories.length > 0) {
-            core.info(`Sample Threat Fetched: ${rawAdvisories[0].summary} (Severity: ${rawAdvisories[0].severity})`);
+        if (rawAdvisories.length === 0) {
+            core.info('No recent advisories found. Exiting successfully.');
+            return;
         }
-        else {
-            core.info('No recent advisories found.');
-        }
-        core.info('Component 2 finished successfully.');
         // --- COMPONENT 3: DEPENDENCY MAPPER ---
         const localDependencies = await (0, dependency_mapper_1.getRepositoryDependencies)(token);
-        if (localDependencies.length > 0) {
-            core.info(`Local packages found: ${JSON.stringify(localDependencies)}`);
-        }
-        else {
-            core.info('No local dependencies mapped.');
-        }
-        core.info('Component 3 finished successfully.');
         // --- COMPONENT 4: VULNERABILITY FILTER ---
         const finalThreats = (0, vulnerability_filter_1.filterAdvisories)(rawAdvisories, threshold, localDependencies);
         if (finalThreats.length === 0) {
             core.info('No matching vulnerabilities found in your dependencies. Your codebase is safe!');
+            return;
         }
-        else {
-            core.info(`TOP THREAT DETECTED IN YOUR CODE: ${finalThreats[0].packageName} (${finalThreats[0].severity})`);
-        }
-        core.info('Component 4 finished successfully.');
+        // --- COMPONENT 5: CONTEXTUAL RISK SOLVER ---
+        // Notice we are now passing the detectedEcosystems array
+        const contextualizedThreats = (0, contextual_risk_solver_1.assessContextualRisk)(finalThreats, workspacePath, detectedEcosystems);
+        core.info('Component 5 finished successfully.');
         core.info('Pipeline finished successfully.');
     }
     catch (error) {
