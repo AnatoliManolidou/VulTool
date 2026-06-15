@@ -30026,6 +30026,104 @@ async function fetchRecentAdvisories(token, ecosystems) {
 
 /***/ }),
 
+/***/ 645:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.getRepositoryDependencies = getRepositoryDependencies;
+const core = __importStar(__nccwpck_require__(7484));
+const github = __importStar(__nccwpck_require__(3228));
+async function getRepositoryDependencies(token) {
+    const octokit = github.getOctokit(token);
+    // github.context automatically knows exactly which repo the action is running inside!
+    const { owner, repo } = github.context.repo;
+    const packageNames = new Set(); // A Set automatically prevents duplicates
+    try {
+        core.info(`🗺️ Component 3: Waking up Dependency Mapper for ${owner}/${repo}...`);
+        // GraphQL query to fetch the repository's native Dependency Graph
+        const query = `
+      query($owner: String!, $repo: String!) {
+        repository(owner: $owner, name: $repo) {
+          dependencyGraphManifests(first: 50) {
+            nodes {
+              filename
+              dependencies(first: 100) {
+                nodes {
+                  packageName
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+        const response = await octokit.graphql(query, {
+            owner,
+            repo,
+            headers: {
+                accept: 'application/vnd.github.hawkgirl-preview+json' // Required header for this specific API
+            }
+        });
+        const manifests = response.repository?.dependencyGraphManifests?.nodes || [];
+        // Loop through files like package.json and extract the package names
+        for (const manifest of manifests) {
+            if (manifest.dependencies && manifest.dependencies.nodes) {
+                for (const dep of manifest.dependencies.nodes) {
+                    packageNames.add(dep.packageName.toLowerCase());
+                }
+            }
+        }
+        const depsArray = Array.from(packageNames);
+        core.info(`Mapped ${depsArray.length} unique dependencies natively from GitHub.`);
+        return depsArray;
+    }
+    catch (error) {
+        if (error instanceof Error) {
+            core.warning(`Dependency Mapper couldn't read the graph: ${error.message}`);
+            core.warning(`Note: Ensure "Dependency Graph" is enabled in your dummy repo's Settings > Code Security.`);
+        }
+        return [];
+    }
+}
+
+
+/***/ }),
+
 /***/ 6303:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -30163,6 +30261,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 const core = __importStar(__nccwpck_require__(7484));
 const language_detector_1 = __nccwpck_require__(6303);
 const alert_fetcher_1 = __nccwpck_require__(884);
+const dependency_mapper_1 = __nccwpck_require__(645);
 async function main() {
     try {
         core.info('CTI Vulnerability Scanner Waking Up...');
@@ -30192,6 +30291,15 @@ async function main() {
             core.info('No recent advisories found.');
         }
         core.info('Component 2 finished successfully.');
+        // --- COMPONENT 3: DEPENDENCY MAPPER ---
+        const localDependencies = await (0, dependency_mapper_1.getRepositoryDependencies)(token);
+        if (localDependencies.length > 0) {
+            core.info(`Local packages found: ${JSON.stringify(localDependencies)}`);
+        }
+        else {
+            core.info('No local dependencies mapped.');
+        }
+        core.info('Component 3 finished successfully.');
     }
     catch (error) {
         if (error instanceof Error) {

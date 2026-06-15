@@ -1,6 +1,7 @@
 import * as core from '@actions/core';
 import { detectEcosystems } from './components/language-detector';
 import { fetchRecentAdvisories } from './components/alert-fetcher';
+import { getRepositoryDependencies } from './components/dependency-mapper';
 
 async function main() {
   try {
@@ -39,6 +40,18 @@ async function main() {
     }
 
     core.info('Component 2 finished successfully.');
+
+    // --- COMPONENT 3: DEPENDENCY MAPPER ---
+    const localDependencies = await getRepositoryDependencies(token);
+
+    if (localDependencies.length > 0) {
+        core.info(`Local packages found: ${JSON.stringify(localDependencies)}`);
+    } else {
+        core.info('No local dependencies mapped.');
+    }
+
+    core.info('Component 3 finished successfully.');
+
   } catch (error) {
     if (error instanceof Error) {
       core.setFailed(`Pipeline crashed: ${error.message}`);
