@@ -30312,6 +30312,74 @@ async function detectEcosystems(workspacePath) {
 
 /***/ }),
 
+/***/ 9331:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.generateRemediationQueue = generateRemediationQueue;
+const core = __importStar(__nccwpck_require__(7484));
+function generateRemediationQueue(assessedThreats) {
+    core.info('Component 6: Waking up Remediation Queue...');
+    if (assessedThreats.length === 0) {
+        core.info('Queue empty. No remediation required.');
+        return;
+    }
+    // Sort the queue: Production risks (isDevDependency: false) first, Dev risks last
+    const sortedThreats = assessedThreats.sort((a, b) => {
+        if (a.isDevDependency === b.isDevDependency)
+            return 0;
+        return a.isDevDependency ? 1 : -1;
+    });
+    core.info('=========================================');
+    core.info('         FINAL REMEDIATION QUEUE         ');
+    core.info('=========================================');
+    sortedThreats.forEach((threat, index) => {
+        core.info(`[Priority ${index + 1}] Package: ${threat.packageName}`);
+        core.info(`    Base Severity: ${threat.severity}`);
+        core.info(`    Context:       ${threat.contextualRisk}`);
+        core.info(`    Details:       ${threat.summary}`);
+        core.info('-----------------------------------------');
+    });
+}
+
+
+/***/ }),
+
 /***/ 7213:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -30428,7 +30496,8 @@ const language_detector_1 = __nccwpck_require__(6303);
 const alert_fetcher_1 = __nccwpck_require__(884);
 const dependency_mapper_1 = __nccwpck_require__(645);
 const vulnerability_filter_1 = __nccwpck_require__(7213);
-const contextual_risk_solver_1 = __nccwpck_require__(241); // <-- NEW IMPORT
+const contextual_risk_solver_1 = __nccwpck_require__(241);
+const remediation_queue_1 = __nccwpck_require__(9331); // <-- NEW IMPORT
 async function main() {
     try {
         core.info('CTI Vulnerability Scanner Waking Up...');
@@ -30458,9 +30527,10 @@ async function main() {
             return;
         }
         // --- COMPONENT 5: CONTEXTUAL RISK SOLVER ---
-        // Notice we are now passing the detectedEcosystems array
         const contextualizedThreats = (0, contextual_risk_solver_1.assessContextualRisk)(finalThreats, workspacePath, detectedEcosystems);
-        core.info('Component 5 finished successfully.');
+        // --- COMPONENT 6: REMEDIATION QUEUE ---
+        (0, remediation_queue_1.generateRemediationQueue)(contextualizedThreats);
+        core.info('Component 6 finished successfully.');
         core.info('Pipeline finished successfully.');
     }
     catch (error) {

@@ -3,7 +3,8 @@ import { detectEcosystems } from './components/language-detector';
 import { fetchRecentAdvisories } from './components/alert-fetcher';
 import { getRepositoryDependencies } from './components/dependency-mapper';
 import { filterAdvisories } from './components/vulnerability-filter';
-import { assessContextualRisk } from './components/contextual-risk-solver'; // <-- NEW IMPORT
+import { assessContextualRisk } from './components/contextual-risk-solver';
+import { generateRemediationQueue } from './components/remediation-queue'; // <-- NEW IMPORT
 
 async function main() {
   try {
@@ -42,9 +43,11 @@ async function main() {
     }
 
     // --- COMPONENT 5: CONTEXTUAL RISK SOLVER ---
-    // Notice we are now passing the detectedEcosystems array
     const contextualizedThreats = assessContextualRisk(finalThreats, workspacePath, detectedEcosystems);
-    core.info('Component 5 finished successfully.');
+
+    // --- COMPONENT 6: REMEDIATION QUEUE ---
+    generateRemediationQueue(contextualizedThreats);
+    core.info('Component 6 finished successfully.');
 
     core.info('Pipeline finished successfully.');
 
