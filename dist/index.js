@@ -30069,11 +30069,25 @@ exports.detectEcosystems = detectEcosystems;
 const fs = __importStar(__nccwpck_require__(9896));
 const path = __importStar(__nccwpck_require__(6928));
 const core = __importStar(__nccwpck_require__(7484));
+// We updated the return type to an object containing both the ecosystems array AND the SBOM status
 async function detectEcosystems(workspacePath) {
     const ecosystems = [];
+    let hasSbom = false;
     try {
         core.info(`Scanning workspace: ${workspacePath}`);
-        // The universal list of ecosystem signatures
+        // --- NEW: SBOM DETECTION ---
+        const sbomSignatures = ['sbom.json', 'bom.xml', 'cyclonedx.json', 'spdx.json', 'spdx.yaml', 'bom.json'];
+        for (const sbom of sbomSignatures) {
+            if (fs.existsSync(path.join(workspacePath, sbom))) {
+                core.info(`Found SBOM file: ${sbom}`);
+                hasSbom = true;
+                break; // Stop looking once we find one
+            }
+        }
+        if (!hasSbom) {
+            core.info('No local SBOM file detected. Pipeline will rely entirely on GitHub Dependency Graph.');
+        }
+        // --- EXISTING: ECOSYSTEM DETECTION ---
         const signatures = [
             { file: 'package.json', ecosystem: 'npm' },
             { file: 'requirements.txt', ecosystem: 'pip' },
@@ -30087,25 +30101,21 @@ async function detectEcosystems(workspacePath) {
             const fullPath = path.join(workspacePath, sig.file);
             if (fs.existsSync(fullPath)) {
                 core.info(`Found signature file: ${sig.file} ➔ Target Ecosystem: ${sig.ecosystem}`);
-                // Prevent duplicates (e.g., if both requirements.txt and Pipfile exist)
                 if (!ecosystems.includes(sig.ecosystem)) {
                     ecosystems.push(sig.ecosystem);
                 }
             }
         }
         if (ecosystems.length === 0) {
-            core.notice('No recognizable package manager files found in root directory. Pipeline halting safely.');
-            // We return the empty array. The Orchestrator will see this and stop.
+            core.notice('No recognizable package manager files found. Pipeline halting safely.');
         }
     }
     catch (error) {
         if (error instanceof Error) {
             core.error(`Language detection failed: ${error.message}`);
         }
-        // Safe fallback to keep the pipeline alive
-        ecosystems.push('npm');
     }
-    return ecosystems;
+    return { ecosystems, hasSbom };
 }
 
 
@@ -30163,13 +30173,13 @@ async function main() {
         core.info(`Target Threshold: ${threshold}`);
         // Locate where the test repo's code is checked out
         const workspacePath = process.env.GITHUB_WORKSPACE || process.cwd();
-        // --- COMPONENT 1: LANGUAGE DETECTOR ---
-        const detectedEcosystems = await (0, language_detector_1.detectEcosystems)(workspacePath);
-        core.info(`Active Ecosystems: ${JSON.stringify(detectedEcosystems)}`);
+        // --- COMPONENT 1: LANGUAGE & SBOM DETECTOR ---
+        const { ecosystems: detectedEcosystems, hasSbom } = await (0, language_detector_1.detectEcosystems)(workspacePath);
+        core.info(`Active Ecosystems: ${JSON.stringify(detectedEcosystems)} | SBOM Present: ${hasSbom}`);
         // Stop sign
         if (detectedEcosystems.length === 0) {
             core.info('No ecosystems to analyze. Exiting successfully.');
-            return; // This immediately stops the Orchestrator.
+            return;
         }
         core.info('Component 1 finished successfully.');
         // --- COMPONENT 2: ALERT FETCHER ---

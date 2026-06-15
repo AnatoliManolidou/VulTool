@@ -16,14 +16,14 @@ async function main() {
     // Locate where the test repo's code is checked out
     const workspacePath = process.env.GITHUB_WORKSPACE || process.cwd();
 
-    // --- COMPONENT 1: LANGUAGE DETECTOR ---
-    const detectedEcosystems = await detectEcosystems(workspacePath);
-    core.info(`Active Ecosystems: ${JSON.stringify(detectedEcosystems)}`);
+    // --- COMPONENT 1: LANGUAGE & SBOM DETECTOR ---
+    const { ecosystems: detectedEcosystems, hasSbom } = await detectEcosystems(workspacePath);
+    core.info(`Active Ecosystems: ${JSON.stringify(detectedEcosystems)} | SBOM Present: ${hasSbom}`);
 
     // Stop sign
     if (detectedEcosystems.length === 0) {
-        core.info('No ecosystems to analyze. Exiting successfully.');
-        return; // This immediately stops the Orchestrator.
+      core.info('No ecosystems to analyze. Exiting successfully.');
+      return; 
     }
 
     core.info('Component 1 finished successfully.');
