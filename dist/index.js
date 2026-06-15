@@ -29980,33 +29980,38 @@ async function fetchRecentAdvisories(token, ecosystems) {
         for (const eco of ecosystems) {
             const graphqlEnum = ecosystemMap[eco];
             if (!graphqlEnum) {
-                core.warning(`Unknown ecosystem for GraphQL: ${eco}`);
+                core.warning(`⚠️ Unknown ecosystem for GraphQL: ${eco}`);
                 continue;
             }
             core.info(`Fetching latest threat intel for ecosystem: ${graphqlEnum}...`);
-            // GraphQL Query asking for the 50 most recent vulnerabilities
+            // Querying 'securityVulnerabilities'
             const query = `
         query($ecosystem: SecurityAdvisoryEcosystem) {
-          securityAdvisories(first: 50, ecosystem: $ecosystem, orderBy: {field: PUBLISHED_AT, direction: DESC}) {
+          securityVulnerabilities(first: 50, ecosystem: $ecosystem, orderBy: {field: UPDATED_AT, direction: DESC}) {
             nodes {
-              ghsaId
-              summary
-              cvss { score }
               severity
-              vulnerabilities(first: 10) {
-                nodes {
-                  package { name }
-                  vulnerableVersionRange
-                }
+              package { name }
+              vulnerableVersionRange
+              advisory {
+                ghsaId
+                summary
               }
             }
           }
         }
       `;
             const response = await octokit.graphql(query, { ecosystem: graphqlEnum });
-            const advisories = response.securityAdvisories.nodes;
-            core.info(`Pulled ${advisories.length} raw advisories for ${graphqlEnum}.`);
-            allAdvisories.push(...advisories);
+            const vulnerabilities = response.securityVulnerabilities.nodes;
+            core.info(`Pulled ${vulnerabilities.length} raw vulnerabilities for ${graphqlEnum}.`);
+            // Map the nested GraphQL response into a clean, flat object for our pipeline
+            const formattedData = vulnerabilities.map((v) => ({
+                ghsaId: v.advisory.ghsaId,
+                summary: v.advisory.summary,
+                severity: v.severity,
+                packageName: v.package.name,
+                vulnerableVersionRange: v.vulnerableVersionRange
+            }));
+            allAdvisories.push(...formattedData);
         }
         return allAdvisories;
     }
