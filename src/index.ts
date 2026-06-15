@@ -1,5 +1,6 @@
 import * as core from '@actions/core';
 import { detectEcosystems } from './components/language-detector';
+import { fetchRecentAdvisories } from './components/alert-fetcher';
 
 async function main() {
   try {
@@ -15,7 +16,7 @@ async function main() {
     // Locate where the test repo's code is checked out
     const workspacePath = process.env.GITHUB_WORKSPACE || process.cwd();
 
-    // Run the language detector component
+    // --- COMPONENT 1: LANGUAGE DETECTOR ---
     const detectedEcosystems = await detectEcosystems(workspacePath);
     core.info(`Active Ecosystems: ${JSON.stringify(detectedEcosystems)}`);
 
@@ -26,6 +27,18 @@ async function main() {
     }
 
     core.info('Component 1 finished successfully.');
+
+    // --- COMPONENT 2: ALERT FETCHER ---
+    const rawAdvisories = await fetchRecentAdvisories(token, detectedEcosystems);
+    
+    // Just printing the very first threat to prove we got the data
+    if (rawAdvisories.length > 0) {
+        core.info(`Sample Threat Fetched: ${rawAdvisories[0].summary} (Severity: ${rawAdvisories[0].severity})`);
+    } else {
+        core.info('No recent advisories found.');
+    }
+
+    core.info('Component 2 finished successfully.');
   } catch (error) {
     if (error instanceof Error) {
       core.setFailed(`Pipeline crashed: ${error.message}`);
