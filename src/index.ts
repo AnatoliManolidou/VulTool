@@ -4,7 +4,7 @@ import { fetchRecentAdvisories } from './components/alert-fetcher';
 import { getRepositoryDependencies } from './components/dependency-mapper';
 import { filterAdvisories } from './components/vulnerability-filter';
 import { assessContextualRisk } from './components/contextual-risk-solver';
-import { generateRemediationQueue } from './components/remediation-queue'; // <-- NEW IMPORT
+import { generateRemediationQueue } from './components/remediation-queue';
 
 async function main() {
   try {

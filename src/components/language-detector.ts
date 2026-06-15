@@ -8,7 +8,7 @@ export async function detectEcosystems(workspacePath: string): Promise<{ ecosyst
   let hasSbom = false;
   
   try {
-    core.info(`Scanning workspace: ${workspacePath}`);
+    core.info(`Component 1: Scanning workspace: ${workspacePath}`);
 
     // --- NEW: SBOM DETECTION ---
     const sbomSignatures = ['sbom.json', 'bom.xml', 'cyclonedx.json', 'spdx.json', 'spdx.yaml', 'bom.json'];

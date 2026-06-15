@@ -20,7 +20,7 @@ export async function fetchRecentAdvisories(token: string, ecosystems: string[])
     for (const eco of ecosystems) {
       const graphqlEnum = ecosystemMap[eco];
       if (!graphqlEnum) {
-        core.warning(`⚠️ Unknown ecosystem for GraphQL: ${eco}`);
+        core.warning(`Unknown ecosystem for GraphQL: ${eco}`);
         continue;
       }
 
