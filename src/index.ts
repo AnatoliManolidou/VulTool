@@ -32,8 +32,8 @@ async function main() {
       return;
     }
 
-    // --- COMPONENT 3: DEPENDENCY MAPPER ---
-    const localDependencies = await getRepositoryDependencies(token);
+     // --- COMPONENT 3: DEPENDENCY MAPPER ---
+    const localDependencies = await getRepositoryDependencies(token, hasSbom, workspacePath);
 
     // --- COMPONENT 4: VULNERABILITY FILTER ---
     const finalThreats = filterAdvisories(rawAdvisories, threshold, localDependencies);

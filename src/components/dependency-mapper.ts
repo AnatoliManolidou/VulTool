@@ -1,16 +1,63 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import * as core from '@actions/core';
 import * as github from '@actions/github';
 
-export async function getRepositoryDependencies(token: string): Promise<string[]> {
+export async function getRepositoryDependencies(
+  token: string, 
+  hasSbom: boolean, 
+  workspacePath: string
+): Promise<string[]> {
+  const packageNames = new Set<string>();
+
+  // STRATEGY A: Local SBOM Parsing
+  if (hasSbom) {
+    core.info('Component 3: Local SBOM detected. Parsing local file for dependency mapping...');
+    try {
+      const sbomFiles = ['sbom.json', 'cyclonedx.json', 'spdx.json', 'bom.json'];
+      let sbomData: any = null;
+
+      for (const file of sbomFiles) {
+        const fullPath = path.join(workspacePath, file);
+        if (fs.existsSync(fullPath)) {
+          core.info(`Reading SBOM target: ${file}`);
+          sbomData = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+          break;
+        }
+      }
+
+      if (sbomData) {
+        // Handle CycloneDX JSON format
+        if (sbomData.components && Array.isArray(sbomData.components)) {
+          sbomData.components.forEach((comp: any) => {
+            if (comp.name) packageNames.add(comp.name.toLowerCase());
+          });
+        } 
+        // Handle SPDX JSON format
+        else if (sbomData.packages && Array.isArray(sbomData.packages)) {
+          sbomData.packages.forEach((pkg: any) => {
+            if (pkg.name) packageNames.add(pkg.name.toLowerCase());
+          });
+        }
+        
+        const depsArray = Array.from(packageNames);
+        core.info(`Mapped ${depsArray.length} unique dependencies directly from local SBOM.`);
+        return depsArray;
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        core.warning(`Failed to parse local SBOM: ${error.message}. Falling back to GitHub API.`);
+      }
+    }
+  }
+
+  // STRATEGY B: Fallback to GitHub Dependency Graph API
   const octokit = github.getOctokit(token);
-  // github.context automatically knows exactly which repo the action is running inside!
   const { owner, repo } = github.context.repo; 
-  const packageNames = new Set<string>(); // A Set automatically prevents duplicates
 
   try {
-    core.info(`Component 3: Waking up Dependency Mapper for ${owner}/${repo}...`);
+    core.info(`Component 3: Waking up Dependency Mapper API fallback for ${owner}/${repo}...`);
 
-    // GraphQL query to fetch the repository's native Dependency Graph
     const query = `
       query($owner: String!, $repo: String!) {
         repository(owner: $owner, name: $repo) {
@@ -32,13 +79,12 @@ export async function getRepositoryDependencies(token: string): Promise<string[]
       owner,
       repo,
       headers: {
-        accept: 'application/vnd.github.hawkgirl-preview+json' // Required header for this specific API
+        accept: 'application/vnd.github.hawkgirl-preview+json'
       }
     });
 
     const manifests = response.repository?.dependencyGraphManifests?.nodes || [];
 
-    // Loop through files like package.json and extract the package names
     for (const manifest of manifests) {
       if (manifest.dependencies && manifest.dependencies.nodes) {
         for (const dep of manifest.dependencies.nodes) {
@@ -48,13 +94,12 @@ export async function getRepositoryDependencies(token: string): Promise<string[]
     }
 
     const depsArray = Array.from(packageNames);
-    core.info(`Mapped ${depsArray.length} unique dependencies natively from GitHub.`);
+    core.info(`Mapped ${depsArray.length} unique dependencies natively from GitHub API.`);
     return depsArray;
 
   } catch (error) {
     if (error instanceof Error) {
-      core.warning(`Dependency Mapper couldn't read the graph: ${error.message}`);
-      core.warning(`Note: Ensure "Dependency Graph" is enabled in your dummy repo's Settings > Code Security.`);
+      core.warning(`Dependency Mapper couldn't read the graph API: ${error.message}`);
     }
     return [];
   }
