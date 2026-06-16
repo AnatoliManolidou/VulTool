@@ -29980,7 +29980,7 @@ async function fetchRecentAdvisories(token, ecosystems) {
         for (const eco of ecosystems) {
             const graphqlEnum = ecosystemMap[eco];
             if (!graphqlEnum) {
-                core.warning(`⚠️ Unknown ecosystem for GraphQL: ${eco}`);
+                core.warning(`Unknown ecosystem for GraphQL: ${eco}`);
                 continue;
             }
             core.info(`Fetching latest threat intel for ecosystem: ${graphqlEnum}...`);
@@ -30159,16 +30159,57 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.getRepositoryDependencies = getRepositoryDependencies;
+const fs = __importStar(__nccwpck_require__(9896));
+const path = __importStar(__nccwpck_require__(6928));
 const core = __importStar(__nccwpck_require__(7484));
 const github = __importStar(__nccwpck_require__(3228));
-async function getRepositoryDependencies(token) {
+async function getRepositoryDependencies(token, hasSbom, workspacePath) {
+    const packageNames = new Set();
+    // STRATEGY A: Local SBOM Parsing
+    if (hasSbom) {
+        core.info('Component 3: Local SBOM detected. Parsing local file for dependency mapping...');
+        try {
+            const sbomFiles = ['sbom.json', 'cyclonedx.json', 'spdx.json', 'bom.json'];
+            let sbomData = null;
+            for (const file of sbomFiles) {
+                const fullPath = path.join(workspacePath, file);
+                if (fs.existsSync(fullPath)) {
+                    core.info(`Reading SBOM target: ${file}`);
+                    sbomData = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+                    break;
+                }
+            }
+            if (sbomData) {
+                // Handle CycloneDX JSON format
+                if (sbomData.components && Array.isArray(sbomData.components)) {
+                    sbomData.components.forEach((comp) => {
+                        if (comp.name)
+                            packageNames.add(comp.name.toLowerCase());
+                    });
+                }
+                // Handle SPDX JSON format
+                else if (sbomData.packages && Array.isArray(sbomData.packages)) {
+                    sbomData.packages.forEach((pkg) => {
+                        if (pkg.name)
+                            packageNames.add(pkg.name.toLowerCase());
+                    });
+                }
+                const depsArray = Array.from(packageNames);
+                core.info(`Mapped ${depsArray.length} unique dependencies directly from local SBOM.`);
+                return depsArray;
+            }
+        }
+        catch (error) {
+            if (error instanceof Error) {
+                core.warning(`Failed to parse local SBOM: ${error.message}. Falling back to GitHub API.`);
+            }
+        }
+    }
+    // STRATEGY B: Fallback to GitHub Dependency Graph API
     const octokit = github.getOctokit(token);
-    // github.context automatically knows exactly which repo the action is running inside!
     const { owner, repo } = github.context.repo;
-    const packageNames = new Set(); // A Set automatically prevents duplicates
     try {
-        core.info(`Component 3: Waking up Dependency Mapper for ${owner}/${repo}...`);
-        // GraphQL query to fetch the repository's native Dependency Graph
+        core.info(`Component 3: Waking up Dependency Mapper API fallback for ${owner}/${repo}...`);
         const query = `
       query($owner: String!, $repo: String!) {
         repository(owner: $owner, name: $repo) {
@@ -30189,11 +30230,10 @@ async function getRepositoryDependencies(token) {
             owner,
             repo,
             headers: {
-                accept: 'application/vnd.github.hawkgirl-preview+json' // Required header for this specific API
+                accept: 'application/vnd.github.hawkgirl-preview+json'
             }
         });
         const manifests = response.repository?.dependencyGraphManifests?.nodes || [];
-        // Loop through files like package.json and extract the package names
         for (const manifest of manifests) {
             if (manifest.dependencies && manifest.dependencies.nodes) {
                 for (const dep of manifest.dependencies.nodes) {
@@ -30202,13 +30242,12 @@ async function getRepositoryDependencies(token) {
             }
         }
         const depsArray = Array.from(packageNames);
-        core.info(`Mapped ${depsArray.length} unique dependencies natively from GitHub.`);
+        core.info(`Mapped ${depsArray.length} unique dependencies natively from GitHub API.`);
         return depsArray;
     }
     catch (error) {
         if (error instanceof Error) {
-            core.warning(`Dependency Mapper couldn't read the graph: ${error.message}`);
-            core.warning(`Note: Ensure "Dependency Graph" is enabled in your dummy repo's Settings > Code Security.`);
+            core.warning(`Dependency Mapper couldn't read the graph API: ${error.message}`);
         }
         return [];
     }
@@ -30265,7 +30304,7 @@ async function detectEcosystems(workspacePath) {
     const ecosystems = [];
     let hasSbom = false;
     try {
-        core.info(`Scanning workspace: ${workspacePath}`);
+        core.info(`Component 1: Scanning workspace: ${workspacePath}`);
         // --- NEW: SBOM DETECTION ---
         const sbomSignatures = ['sbom.json', 'bom.xml', 'cyclonedx.json', 'spdx.json', 'spdx.yaml', 'bom.json'];
         for (const sbom of sbomSignatures) {
@@ -30497,7 +30536,7 @@ const alert_fetcher_1 = __nccwpck_require__(884);
 const dependency_mapper_1 = __nccwpck_require__(645);
 const vulnerability_filter_1 = __nccwpck_require__(7213);
 const contextual_risk_solver_1 = __nccwpck_require__(241);
-const remediation_queue_1 = __nccwpck_require__(9331); // <-- NEW IMPORT
+const remediation_queue_1 = __nccwpck_require__(9331);
 async function main() {
     try {
         core.info('CTI Vulnerability Scanner Waking Up...');
@@ -30519,7 +30558,7 @@ async function main() {
             return;
         }
         // --- COMPONENT 3: DEPENDENCY MAPPER ---
-        const localDependencies = await (0, dependency_mapper_1.getRepositoryDependencies)(token);
+        const localDependencies = await (0, dependency_mapper_1.getRepositoryDependencies)(token, hasSbom, workspacePath);
         // --- COMPONENT 4: VULNERABILITY FILTER ---
         const finalThreats = (0, vulnerability_filter_1.filterAdvisories)(rawAdvisories, threshold, localDependencies);
         if (finalThreats.length === 0) {
