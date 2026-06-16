@@ -48,7 +48,7 @@ export async function fetchRecentAdvisories(token: string, ecosystems: string[])
       
       core.info(`Pulled ${vulnerabilities.length} raw vulnerabilities for ${graphqlEnum}.`);
       
-      // --- RESTORED: Print a single real-time sample from the global threat database ---
+      //Print a single real-time sample from the global threat database ---
       if (vulnerabilities.length > 0) {
         const sample = vulnerabilities[0];
         core.info(`Sample Threat Fetched: ${sample.package.name}: ${sample.advisory.summary} (Severity: ${sample.severity})`);
