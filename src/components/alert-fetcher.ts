@@ -5,7 +5,7 @@ export async function fetchRecentAdvisories(token: string, ecosystems: string[])
   const octokit = github.getOctokit(token);
   const allAdvisories: any[] = [];
 
-  // Map out simple ecosystem strings to GitHub's exact GraphQL Enums
+  // Map our simple ecosystem strings to GitHub's exact GraphQL Enums
   const ecosystemMap: Record<string, string> = {
     'npm': 'NPM',
     'pip': 'PIP',
@@ -47,6 +47,12 @@ export async function fetchRecentAdvisories(token: string, ecosystems: string[])
       const vulnerabilities = response.securityVulnerabilities.nodes;
       
       core.info(`Pulled ${vulnerabilities.length} raw vulnerabilities for ${graphqlEnum}.`);
+      
+      // --- RESTORED: Print a single real-time sample from the global threat database ---
+      if (vulnerabilities.length > 0) {
+        const sample = vulnerabilities[0];
+        core.info(`Sample Threat Fetched: ${sample.package.name}: ${sample.advisory.summary} (Severity: ${sample.severity})`);
+      }
       
       // Map the nested GraphQL response into a clean, flat object for our pipeline
       const formattedData = vulnerabilities.map((v: any) => ({
