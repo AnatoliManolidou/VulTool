@@ -15,21 +15,21 @@ async function main() {
     const threshold = core.getInput('severity_threshold');
     core.setSecret(token);
 
-    core.info(`Target Threshold: ${threshold}`);
+    core.info(`Target Threshold: ${threshold}\n`);
 
     const workspacePath = process.env.GITHUB_WORKSPACE || process.cwd();
 
     // --- COMPONENT 1: LANGUAGE & SBOM DETECTOR ---
     const { ecosystems: detectedEcosystems, hasSbom } = await detectEcosystems(workspacePath);
     if (detectedEcosystems.length === 0) {
-      core.info('No ecosystems to analyze. Exiting successfully.');
+      core.info('No ecosystems to analyze. Exiting successfully.\n');
       return; 
     }
 
     // --- COMPONENT 2: ALERT FETCHER ---
     const rawAdvisories = await fetchRecentAdvisories(token, detectedEcosystems);
     if (rawAdvisories.length === 0) {
-      core.info('No recent advisories found. Exiting successfully.');
+      core.info('No recent advisories found. Exiting successfully.\n');
       return;
     }
 
@@ -38,15 +38,15 @@ async function main() {
     
     // Check for API timeout/failure handler
     if (localDependencies === null) {
-      core.error('CRITICAL PIPELINE HALT: Dependency Mapper failed to retrieve your local repository map due to an upstream API timeout or configuration error.');
-      core.info('Action Plan: Check if GitHub Dependency Graph is enabled in your repository settings or retry the run.');
+      core.error('CRITICAL PIPELINE HALT: Dependency Mapper failed to retrieve your local repository map due to an upstream API timeout or configuration error.\n');
+      core.info('Action Plan: Check if GitHub Dependency Graph is enabled in your repository settings or retry the run.\n');
       return; 
     }
 
     // --- COMPONENT 4: VULNERABILITY FILTER ---
     const finalThreats = filterAdvisories(rawAdvisories, threshold, localDependencies);
     if (finalThreats.length === 0) {
-      core.info('No matching vulnerabilities found in your dependencies.');
+      core.info('No matching vulnerabilities found in your dependencies.\n');
       return;
     }
 
@@ -55,7 +55,6 @@ async function main() {
 
     // --- COMPONENT 6: REMEDIATION QUEUE ---
     generateRemediationQueue(contextualizedThreats);
-    core.info('Component 6 finished successfully.');
 
     // --- COMPONENT 7: AST REACHABILITY ANALYZER ---
     const activeImports = analyzeReachability(workspacePath, detectedEcosystems);
@@ -66,12 +65,11 @@ async function main() {
     );
 
     if (reachableThreats.length > 0) {
-      core.warning(`REACHABILITY ALERT: ${reachableThreats.length} vulnerabilities are actively imported in your code execution path!`);
-      core.info(`Top reachable threat: ${reachableThreats[0].packageName}`);
+      core.warning(`REACHABILITY ALERT: ${reachableThreats.length} vulnerabilities are actively imported in your code execution path!\n`);
+      core.info(`Top reachable threat: ${reachableThreats[0].packageName}\n`);
     } else {
-      core.info('REACHABILITY NOTICE: Verified threats are installed in manifests but unreferenced in code execution blocks.');
+      core.info('REACHABILITY NOTICE: Verified threats are installed in manifests but unreferenced in code execution blocks.\n');
     }
-    core.info('Component 7 finished successfully.');
     core.info('Pipeline finished successfully.');
 
   } catch (error) {

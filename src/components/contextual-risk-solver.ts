@@ -32,7 +32,7 @@ export function assessContextualRisk(threats: any[], workspacePath: string, ecos
     // As you expand to Go, Rust, etc., you just add their specific parser blocks here.
 
   } catch (e) {
-    core.warning('Could not parse local manifests for context assessment. Defaulting to HIGH risk for all threats.');
+    core.warning('Could not parse local manifests for context assessment. Defaulting to HIGH risk for all threats.\n');
   }
 
   const assessedThreats = threats.map(threat => {
@@ -52,7 +52,7 @@ export function assessContextualRisk(threats: any[], workspacePath: string, ecos
   
   // Print the first assessed threat to prove it worked
   if (assessedThreats.length > 0) {
-      core.info(`Context Result: ${assessedThreats[0].packageName} ➔ ${assessedThreats[0].contextualRisk}`);
+      core.info(`Context Result: ${assessedThreats[0].packageName} ➔ ${assessedThreats[0].contextualRisk}\n`);
   }
 
   return assessedThreats;

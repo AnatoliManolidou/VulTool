@@ -7,7 +7,7 @@ export async function getRepositoryDependencies(
   token: string, 
   hasSbom: boolean, 
   workspacePath: string
-): Promise<string[] | null> { // <-- UPDATED TYPE: Can now return null
+): Promise<string[] | null> { 
   const packageNames = new Set<string>();
 
   // STRATEGY A: Local SBOM Parsing
@@ -92,12 +92,12 @@ export async function getRepositoryDependencies(
     }
 
     const depsArray = Array.from(packageNames);
-    core.info(`Mapped ${depsArray.length} unique dependencies natively from GitHub API.`);
+    core.info(`Mapped ${depsArray.length} unique dependencies natively from GitHub API.\n`);
     return depsArray;
 
   } catch (error) {
     if (error instanceof Error) {
-      core.error(`Dependency Mapper API Error: ${error.message}`);
+      core.error(`Dependency Mapper API Error: ${error.message}\n`);
     }
     return null; //Return null to flag a critical fallback failure
   }
