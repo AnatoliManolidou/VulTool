@@ -7,7 +7,7 @@ export async function getRepositoryDependencies(
   token: string, 
   hasSbom: boolean, 
   workspacePath: string
-): Promise<string[]> {
+): Promise<string[] | null> { // <-- UPDATED TYPE: Can now return null
   const packageNames = new Set<string>();
 
   // STRATEGY A: Local SBOM Parsing
@@ -27,13 +27,11 @@ export async function getRepositoryDependencies(
       }
 
       if (sbomData) {
-        // Handle CycloneDX JSON format
         if (sbomData.components && Array.isArray(sbomData.components)) {
           sbomData.components.forEach((comp: any) => {
             if (comp.name) packageNames.add(comp.name.toLowerCase());
           });
         } 
-        // Handle SPDX JSON format
         else if (sbomData.packages && Array.isArray(sbomData.packages)) {
           sbomData.packages.forEach((pkg: any) => {
             if (pkg.name) packageNames.add(pkg.name.toLowerCase());
@@ -99,8 +97,8 @@ export async function getRepositoryDependencies(
 
   } catch (error) {
     if (error instanceof Error) {
-      core.warning(`Dependency Mapper couldn't read the graph API: ${error.message}`);
+      core.error(`Dependency Mapper API Error: ${error.message}`);
     }
-    return [];
+    return null; //Return null to flag a critical fallback failure
   }
 }

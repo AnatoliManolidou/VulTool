@@ -33,13 +33,20 @@ async function main() {
       return;
     }
 
-    // --- COMPONENT 3: DEPENDENCY MAPPER ---
+   // --- COMPONENT 3: DEPENDENCY MAPPER ---
     const localDependencies = await getRepositoryDependencies(token, hasSbom, workspacePath);
+    
+    // Check for API timeout/failure handler
+    if (localDependencies === null) {
+      core.error('CRITICAL PIPELINE HALT: Dependency Mapper failed to retrieve your local repository map due to an upstream API timeout or configuration error.');
+      core.info('Action Plan: Check if GitHub Dependency Graph is enabled in your repository settings or retry the run.');
+      return; 
+    }
 
     // --- COMPONENT 4: VULNERABILITY FILTER ---
     const finalThreats = filterAdvisories(rawAdvisories, threshold, localDependencies);
     if (finalThreats.length === 0) {
-      core.info('No matching vulnerabilities found in your dependencies. Your codebase is safe!');
+      core.info('No matching vulnerabilities found in your dependencies.');
       return;
     }
 
