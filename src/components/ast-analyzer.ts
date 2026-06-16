@@ -111,12 +111,12 @@ export function analyzeReachability(workspacePath: string, ecosystems: string[])
       }
     } catch (error) {
       if (error instanceof Error) {
-        core.error(`AST Analyzer failed for ecosystem ${eco}: ${error.message}\n`);
+        core.error(`AST Analyzer failed for ecosystem ${eco}: ${error.message}`);
       }
     }
   }
 
   const resultList = Array.from(importedPackages);
-  core.info(`AST Analyzer: Total unique active modules detected across source code: ${resultList.length}\n`);
+  core.info(`AST Analyzer: Total unique active modules detected across source code: ${resultList.length}`);
   return resultList;
 }

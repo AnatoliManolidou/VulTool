@@ -22,14 +22,14 @@ async function main() {
     // --- COMPONENT 1: LANGUAGE & SBOM DETECTOR ---
     const { ecosystems: detectedEcosystems, hasSbom } = await detectEcosystems(workspacePath);
     if (detectedEcosystems.length === 0) {
-      core.info('No ecosystems to analyze. Exiting successfully.\n');
+      core.info('No ecosystems to analyze. Exiting successfully.');
       return; 
     }
 
     // --- COMPONENT 2: ALERT FETCHER ---
     const rawAdvisories = await fetchRecentAdvisories(token, detectedEcosystems);
     if (rawAdvisories.length === 0) {
-      core.info('No recent advisories found. Exiting successfully.\n');
+      core.info('No recent advisories found. Exiting successfully.');
       return;
     }
 
@@ -38,15 +38,15 @@ async function main() {
     
     // Check for API timeout/failure handler
     if (localDependencies === null) {
-      core.error('CRITICAL PIPELINE HALT: Dependency Mapper failed to retrieve your local repository map due to an upstream API timeout or configuration error.\n');
-      core.info('Action Plan: Check if GitHub Dependency Graph is enabled in your repository settings or retry the run.\n');
+      core.error('CRITICAL PIPELINE HALT: Dependency Mapper failed to retrieve your local repository map due to an upstream API timeout or configuration error.');
+      core.info('Action Plan: Check if GitHub Dependency Graph is enabled in your repository settings or retry the run.');
       return; 
     }
 
     // --- COMPONENT 4: VULNERABILITY FILTER ---
     const finalThreats = filterAdvisories(rawAdvisories, threshold, localDependencies);
     if (finalThreats.length === 0) {
-      core.info('No matching vulnerabilities found in your dependencies.\n');
+      core.info('No matching vulnerabilities found in your dependencies.');
       return;
     }
 
@@ -65,10 +65,10 @@ async function main() {
     );
 
     if (reachableThreats.length > 0) {
-      core.warning(`REACHABILITY ALERT: ${reachableThreats.length} vulnerabilities are actively imported in your code execution path!\n`);
-      core.info(`Top reachable threat: ${reachableThreats[0].packageName}\n`);
+      core.warning(`REACHABILITY ALERT: ${reachableThreats.length} vulnerabilities are actively imported in your code execution path!`);
+      core.info(`Top reachable threat: ${reachableThreats[0].packageName}`);
     } else {
-      core.info('REACHABILITY NOTICE: Verified threats are installed in manifests but unreferenced in code execution blocks.\n');
+      core.info('REACHABILITY NOTICE: Verified threats are installed in manifests but unreferenced in code execution blocks.');
     }
     core.info('Pipeline finished successfully.');
 

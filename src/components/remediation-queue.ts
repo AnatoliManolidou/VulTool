@@ -24,6 +24,6 @@ export function generateRemediationQueue(assessedThreats: any[]) {
     core.info(`    Context:       ${threat.contextualRisk}`);
     core.info(`    Versions:      ${threat.vulnerableVersionRange}`);
     core.info(`    Details:       ${threat.summary}`);
-    core.info('-----------------------------------------\n');
+    core.info('-----------------------------------------');
   });
 }

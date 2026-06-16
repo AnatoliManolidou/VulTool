@@ -38,7 +38,7 @@ export async function detectEcosystems(workspacePath: string): Promise<{ ecosyst
     for (const sig of signatures) {
       const fullPath = path.join(workspacePath, sig.file);
       if (fs.existsSync(fullPath)) {
-        core.info(`Found signature file: ${sig.file} ➔ Target Ecosystem: ${sig.ecosystem}\n`);
+        core.info(`Found signature file: ${sig.file} ➔ Target Ecosystem: ${sig.ecosystem}`);
         if (!ecosystems.includes(sig.ecosystem)) {
           ecosystems.push(sig.ecosystem);
         }
@@ -46,12 +46,12 @@ export async function detectEcosystems(workspacePath: string): Promise<{ ecosyst
     }
 
     if (ecosystems.length === 0) {
-      core.notice('No recognizable package manager files found. Pipeline halting safely.\n');
+      core.notice('No recognizable package manager files found. Pipeline halting safely.');
     }
     
   } catch (error) {
     if (error instanceof Error) {
-      core.error(`Language detection failed: ${error.message}\n`);
+      core.error(`Language detection failed: ${error.message}`);
     }
   }
   

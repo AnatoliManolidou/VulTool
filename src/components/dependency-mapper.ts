@@ -92,12 +92,12 @@ export async function getRepositoryDependencies(
     }
 
     const depsArray = Array.from(packageNames);
-    core.info(`Mapped ${depsArray.length} unique dependencies natively from GitHub API.\n`);
+    core.info(`Mapped ${depsArray.length} unique dependencies natively from GitHub API.`);
     return depsArray;
 
   } catch (error) {
     if (error instanceof Error) {
-      core.error(`Dependency Mapper API Error: ${error.message}\n`);
+      core.error(`Dependency Mapper API Error: ${error.message}`);
     }
     return null; //Return null to flag a critical fallback failure
   }
