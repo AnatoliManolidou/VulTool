@@ -1,7 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as core from '@actions/core';
-import Parser from 'tree-sitter';
+
+// Safe module resolution for native C++ binary binding
+const Parser = require('tree-sitter');
 
 // Dynamic loading of tree-sitter language grammars
 const Grammars: Record<string, any> = {
