@@ -5,7 +5,6 @@ import { getRepositoryDependencies } from './components/dependency-mapper';
 import { filterAdvisories } from './components/vulnerability-filter';
 import { assessContextualRisk } from './components/contextual-risk-solver';
 import { generateRemediationQueue } from './components/remediation-queue';
-import { analyzeReachability } from './components/ast-analyzer';
 
 async function main() {
   try {
@@ -56,20 +55,6 @@ async function main() {
     // --- COMPONENT 6: REMEDIATION QUEUE ---
     generateRemediationQueue(contextualizedThreats);
 
-    // --- COMPONENT 7: AST REACHABILITY ANALYZER ---
-    const activeImports = analyzeReachability(workspacePath, detectedEcosystems);
-    core.info(`Active source code imports: ${JSON.stringify(activeImports)}`);
-
-    const reachableThreats = finalThreats.filter(threat => 
-      activeImports.includes(threat.packageName.toLowerCase())
-    );
-
-    if (reachableThreats.length > 0) {
-      core.warning(`REACHABILITY ALERT: ${reachableThreats.length} vulnerabilities are actively imported in your code execution path!`);
-      core.info(`Top reachable threat: ${reachableThreats[0].packageName}`);
-    } else {
-      core.info('REACHABILITY NOTICE: Verified threats are installed in manifests but unreferenced in code execution blocks.');
-    }
     core.info('Pipeline finished successfully.');
 
   } catch (error) {

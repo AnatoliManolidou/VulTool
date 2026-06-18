@@ -30031,162 +30031,6 @@ async function fetchRecentAdvisories(token, ecosystems) {
 
 /***/ }),
 
-/***/ 9999:
-/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
-
-"use strict";
-
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.analyzeReachability = analyzeReachability;
-const fs = __importStar(__nccwpck_require__(9896));
-const path = __importStar(__nccwpck_require__(6928));
-const core = __importStar(__nccwpck_require__(7484));
-// Safe module resolution for native C++ binary binding
-const Parser = __nccwpck_require__(39);
-// Dynamic loading of tree-sitter language grammars
-const Grammars = {
-    'npm': (__nccwpck_require__(8017).typescript),
-    'pip': __nccwpck_require__(9726),
-    'go': __nccwpck_require__(5098)
-};
-// Target file extensions associated with each ecosystem
-const Extensions = {
-    'npm': ['.js', '.ts', '.jsx', '.tsx'],
-    'pip': ['.py'],
-    'go': ['.go']
-};
-// Language-specific S-expression patterns mapping universally to @import_target
-const QueryPatterns = {
-    'npm': `
-    (import_statement source: (string) @import_target)
-    (call_expression 
-      function: (identifier) @func_name 
-      arguments: (arguments (string) @import_target)
-      (#eq? @func_name "require")
-    )
-  `,
-    'pip': `
-    (import_statement name: (dotted_name) @import_target)
-    (import_from_statement module_name: (dotted_name) @import_target)
-  `,
-    'go': `
-    (import_spec path: (string) @import_target)
-  `
-};
-// Fully generic directory crawler filtering by applicable extensions
-function locateSourceFiles(dirPath, allowedExtensions) {
-    let results = [];
-    if (!fs.existsSync(dirPath))
-        return results;
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-    for (const entry of entries) {
-        const fullPath = path.join(dirPath, entry.name);
-        if (entry.isDirectory()) {
-            if (entry.name !== 'node_modules' && entry.name !== 'vendor' && !entry.name.startsWith('.')) {
-                results = results.concat(locateSourceFiles(fullPath, allowedExtensions));
-            }
-        }
-        else if (entry.isFile()) {
-            if (allowedExtensions.includes(path.extname(entry.name))) {
-                results.push(fullPath);
-            }
-        }
-    }
-    return results;
-}
-function analyzeReachability(workspacePath, ecosystems) {
-    core.info('Component 7: Waking up AST Reachability Analyzer...');
-    const importedPackages = new Set();
-    for (const eco of ecosystems) {
-        const languageGrammar = Grammars[eco];
-        const allowedExtensions = Extensions[eco];
-        const pattern = QueryPatterns[eco];
-        if (!languageGrammar || !allowedExtensions || !pattern) {
-            core.warning(`AST Analyzer: Ecosystem ${eco} is not yet supported for AST parsing. Skipping.`);
-            continue;
-        }
-        core.info(`AST Analyzer: Initializing abstract syntax tree parsing for ${eco}...`);
-        try {
-            const parser = new Parser();
-            parser.setLanguage(languageGrammar);
-            const query = new Parser.Query(languageGrammar, pattern);
-            const sourceFiles = locateSourceFiles(workspacePath, allowedExtensions);
-            core.info(`AST Analyzer: Found ${sourceFiles.length} source files matching ecosystem ${eco}.`);
-            for (const file of sourceFiles) {
-                const sourceCode = fs.readFileSync(file, 'utf8');
-                const tree = parser.parse(sourceCode);
-                const matches = query.matches(tree.rootNode);
-                for (const match of matches) {
-                    for (const capture of match.captures) {
-                        if (capture.name === 'import_target') {
-                            // Strip quotes/whitespace and normalize package target strings
-                            let rawText = capture.node.text.replace(/['"`]/g, '').trim();
-                            if (eco === 'npm') {
-                                if (rawText.startsWith('@')) {
-                                    const parts = rawText.split('/');
-                                    if (parts.length >= 2)
-                                        importedPackages.add(`${parts[0]}/${parts[1]}`.toLowerCase());
-                                }
-                                else {
-                                    importedPackages.add(rawText.split('/')[0].toLowerCase());
-                                }
-                            }
-                            else {
-                                // For Python and Go, take the base root module name
-                                importedPackages.add(rawText.split('.')[0].split('/')[0].toLowerCase());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        catch (error) {
-            if (error instanceof Error) {
-                core.error(`AST Analyzer failed for ecosystem ${eco}: ${error.message}`);
-            }
-        }
-    }
-    const resultList = Array.from(importedPackages);
-    core.info(`AST Analyzer: Total unique active modules detected across source code: ${resultList.length}`);
-    return resultList;
-}
-
-
-/***/ }),
-
 /***/ 241:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -30697,7 +30541,6 @@ const dependency_mapper_1 = __nccwpck_require__(645);
 const vulnerability_filter_1 = __nccwpck_require__(7213);
 const contextual_risk_solver_1 = __nccwpck_require__(241);
 const remediation_queue_1 = __nccwpck_require__(9331);
-const ast_analyzer_1 = __nccwpck_require__(9999);
 async function main() {
     try {
         core.info('CTI Vulnerability Scanner Waking Up...');
@@ -30736,17 +30579,6 @@ async function main() {
         const contextualizedThreats = (0, contextual_risk_solver_1.assessContextualRisk)(finalThreats, workspacePath, detectedEcosystems);
         // --- COMPONENT 6: REMEDIATION QUEUE ---
         (0, remediation_queue_1.generateRemediationQueue)(contextualizedThreats);
-        // --- COMPONENT 7: AST REACHABILITY ANALYZER ---
-        const activeImports = (0, ast_analyzer_1.analyzeReachability)(workspacePath, detectedEcosystems);
-        core.info(`Active source code imports: ${JSON.stringify(activeImports)}`);
-        const reachableThreats = finalThreats.filter(threat => activeImports.includes(threat.packageName.toLowerCase()));
-        if (reachableThreats.length > 0) {
-            core.warning(`REACHABILITY ALERT: ${reachableThreats.length} vulnerabilities are actively imported in your code execution path!`);
-            core.info(`Top reachable threat: ${reachableThreats[0].packageName}`);
-        }
-        else {
-            core.info('REACHABILITY NOTICE: Verified threats are installed in manifests but unreferenced in code execution blocks.');
-        }
         core.info('Pipeline finished successfully.');
     }
     catch (error) {
@@ -30756,38 +30588,6 @@ async function main() {
     }
 }
 main();
-
-
-/***/ }),
-
-/***/ 39:
-/***/ ((module) => {
-
-module.exports = eval("require")("tree-sitter");
-
-
-/***/ }),
-
-/***/ 5098:
-/***/ ((module) => {
-
-module.exports = eval("require")("tree-sitter-go");
-
-
-/***/ }),
-
-/***/ 9726:
-/***/ ((module) => {
-
-module.exports = eval("require")("tree-sitter-python");
-
-
-/***/ }),
-
-/***/ 8017:
-/***/ ((module) => {
-
-module.exports = eval("require")("tree-sitter-typescript");
 
 
 /***/ }),
