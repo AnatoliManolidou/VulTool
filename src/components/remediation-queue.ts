@@ -8,20 +8,20 @@ export function generateRemediationQueue(assessedThreats: any[]) {
     return;
   }
 
-  const sortedThreats = assessedThreats.sort((a, b) => {
-    if (a.isDevDependency === b.isDevDependency) return 0;
-    return a.isDevDependency ? 1 : -1; 
-  });
+  // Sort descending by priorityScore (set by contextual-risk-solver).
+  // Severity is the primary key; prod/dev is the tiebreaker within the same severity.
+  const sortedThreats = [...assessedThreats].sort((a, b) => b.priorityScore - a.priorityScore);
 
   core.info('=========================================');
   core.info('         FINAL REMEDIATION QUEUE         ');
   core.info('=========================================');
-  
+
   sortedThreats.forEach((threat, index) => {
     core.info(`[Priority ${index + 1}] Package: ${threat.packageName}`);
     core.info(`    Identifier:    ${threat.ghsaId}`);
     core.info(`    Base Severity: ${threat.severity}`);
     core.info(`    Context:       ${threat.contextualRisk}`);
+    core.info(`    Priority Score:${threat.priorityScore}`);
     core.info(`    Versions:      ${threat.vulnerableVersionRange}`);
     core.info(`    Details:       ${threat.summary}`);
     core.info('-----------------------------------------');

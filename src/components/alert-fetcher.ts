@@ -7,11 +7,18 @@ export async function fetchRecentAdvisories(token: string, ecosystems: string[])
 
   // Map our simple ecosystem strings to GitHub's exact GraphQL Enums
   const ecosystemMap: Record<string, string> = {
-    'npm': 'NPM',
-    'pip': 'PIP',
+    'npm':      'NPM',
+    'pip':      'PIP',
     'rubygems': 'RUBYGEMS',
-    'go': 'GO',
-    'crates': 'RUST'
+    'go':       'GO',
+    'crates':   'RUST',
+    'maven':    'MAVEN',
+    'nuget':    'NUGET',
+    'composer': 'COMPOSER',
+    'swift':    'SWIFT',
+    'pub':      'PUB',
+    'erlang':   'ERLANG',
+    'actions':  'ACTIONS',
   };
 
   try {

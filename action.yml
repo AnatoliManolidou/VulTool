@@ -7,7 +7,7 @@ inputs:
     description: 'GitHub API token for pulling dependency graphs and fetching advisories'
     required: true
   severity_threshold:
-    description: 'Minimum contextual severity to process (CRITICAL, HIGH, MEDIUM, LOW)'
+    description: 'Minimum contextual severity to process (CRITICAL, HIGH, MODERATE, LOW)'
     required: false
     default: 'HIGH'
   dry_run:

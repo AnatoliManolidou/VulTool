@@ -29973,7 +29973,14 @@ async function fetchRecentAdvisories(token, ecosystems) {
         'pip': 'PIP',
         'rubygems': 'RUBYGEMS',
         'go': 'GO',
-        'crates': 'RUST'
+        'crates': 'RUST',
+        'maven': 'MAVEN',
+        'nuget': 'NUGET',
+        'composer': 'COMPOSER',
+        'swift': 'SWIFT',
+        'pub': 'PUB',
+        'erlang': 'ERLANG',
+        'actions': 'ACTIONS',
     };
     try {
         core.info('Component 2: Waking up Alert Fetcher...');
@@ -30074,49 +30081,279 @@ exports.assessContextualRisk = assessContextualRisk;
 const fs = __importStar(__nccwpck_require__(9896));
 const path = __importStar(__nccwpck_require__(6928));
 const core = __importStar(__nccwpck_require__(7484));
+const SEVERITY_WEIGHTS = {
+    'LOW': 1,
+    'MODERATE': 2,
+    'HIGH': 3,
+    'CRITICAL': 4,
+};
+// Each extractor adds known dev-only package names (lowercase) to the set.
+// Failures are isolated — one broken manifest doesn't affect others.
+function extractNpmDevDeps(workspacePath, devDeps) {
+    const pkgPath = path.join(workspacePath, 'package.json');
+    if (!fs.existsSync(pkgPath))
+        return;
+    try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        for (const dep of Object.keys(pkg.devDependencies || {})) {
+            devDeps.add(dep.toLowerCase());
+        }
+    }
+    catch { /* malformed JSON — skip */ }
+}
+function extractPipDevDeps(workspacePath, devDeps) {
+    // Requirements files: several naming conventions are in common use
+    const devFiles = [
+        'requirements-dev.txt',
+        'dev-requirements.txt',
+        path.join('requirements', 'dev.txt'),
+        path.join('requirements', 'development.txt'),
+        path.join('requirements', 'test.txt'),
+    ];
+    for (const rel of devFiles) {
+        const fullPath = path.join(workspacePath, rel);
+        if (!fs.existsSync(fullPath))
+            continue;
+        try {
+            for (const line of fs.readFileSync(fullPath, 'utf8').split('\n')) {
+                const clean = line.split(/[=<>~!;]/)[0].trim().toLowerCase();
+                if (clean && !clean.startsWith('#') && !clean.startsWith('-')) {
+                    devDeps.add(clean);
+                }
+            }
+        }
+        catch { /* skip */ }
+    }
+    // pyproject.toml — Poetry dev-dependencies (both old and new group syntax)
+    const pyprojectPath = path.join(workspacePath, 'pyproject.toml');
+    if (fs.existsSync(pyprojectPath)) {
+        try {
+            const lines = fs.readFileSync(pyprojectPath, 'utf8').split('\n');
+            let inDevSection = false;
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (trimmed === '[tool.poetry.dev-dependencies]' ||
+                    trimmed === '[tool.poetry.group.dev.dependencies]') {
+                    inDevSection = true;
+                    continue;
+                }
+                if (inDevSection && trimmed.startsWith('[')) {
+                    inDevSection = false;
+                }
+                if (inDevSection && trimmed.includes('=')) {
+                    const name = trimmed.split('=')[0].trim().toLowerCase();
+                    if (name && !name.startsWith('#'))
+                        devDeps.add(name);
+                }
+            }
+        }
+        catch { /* skip */ }
+    }
+}
+function extractRubyDevDeps(workspacePath, devDeps) {
+    const gemfilePath = path.join(workspacePath, 'Gemfile');
+    if (!fs.existsSync(gemfilePath))
+        return;
+    try {
+        const lines = fs.readFileSync(gemfilePath, 'utf8').split('\n');
+        let inDevGroup = false;
+        let depth = 0;
+        for (const line of lines) {
+            const trimmed = line.trim();
+            // Detect group :development or group :test (may include both)
+            if (/^group\s+.*(:(development|test))/.test(trimmed) && trimmed.endsWith('do')) {
+                inDevGroup = true;
+                depth = 1;
+                continue;
+            }
+            if (inDevGroup) {
+                if (trimmed.endsWith('do'))
+                    depth++;
+                if (trimmed === 'end') {
+                    depth--;
+                    if (depth === 0) {
+                        inDevGroup = false;
+                        continue;
+                    }
+                }
+                const match = trimmed.match(/^gem\s+['"]([^'"]+)['"]/);
+                if (match)
+                    devDeps.add(match[1].toLowerCase());
+            }
+        }
+    }
+    catch { /* skip */ }
+}
+function extractCargoDevDeps(workspacePath, devDeps) {
+    const cargoPath = path.join(workspacePath, 'Cargo.toml');
+    if (!fs.existsSync(cargoPath))
+        return;
+    try {
+        const lines = fs.readFileSync(cargoPath, 'utf8').split('\n');
+        let inDevDeps = false;
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed === '[dev-dependencies]') {
+                inDevDeps = true;
+                continue;
+            }
+            if (inDevDeps && trimmed.startsWith('[')) {
+                inDevDeps = false;
+            }
+            if (inDevDeps && trimmed.includes('=')) {
+                const name = trimmed.split('=')[0].trim().toLowerCase();
+                if (name && !name.startsWith('#'))
+                    devDeps.add(name);
+            }
+        }
+    }
+    catch { /* skip */ }
+}
+function extractMavenDevDeps(workspacePath, devDeps) {
+    const pomPath = path.join(workspacePath, 'pom.xml');
+    if (!fs.existsSync(pomPath))
+        return;
+    try {
+        const content = fs.readFileSync(pomPath, 'utf8');
+        // Match <dependency> blocks that contain <scope>test</scope>
+        const depBlockRegex = /<dependency>([\s\S]*?)<\/dependency>/g;
+        let match;
+        while ((match = depBlockRegex.exec(content)) !== null) {
+            const block = match[1];
+            if (!/<scope>\s*test\s*<\/scope>/i.test(block))
+                continue;
+            const artifactMatch = block.match(/<artifactId>\s*([^<]+)\s*<\/artifactId>/);
+            const groupMatch = block.match(/<groupId>\s*([^<]+)\s*<\/groupId>/);
+            if (artifactMatch) {
+                const artifact = artifactMatch[1].trim().toLowerCase();
+                devDeps.add(artifact);
+                if (groupMatch) {
+                    // Advisory package names for Maven use groupId:artifactId format
+                    devDeps.add(`${groupMatch[1].trim().toLowerCase()}:${artifact}`);
+                }
+            }
+        }
+    }
+    catch { /* skip */ }
+}
+function extractComposerDevDeps(workspacePath, devDeps) {
+    const composerPath = path.join(workspacePath, 'composer.json');
+    if (!fs.existsSync(composerPath))
+        return;
+    try {
+        const pkg = JSON.parse(fs.readFileSync(composerPath, 'utf8'));
+        for (const dep of Object.keys(pkg['require-dev'] || {})) {
+            devDeps.add(dep.toLowerCase());
+        }
+    }
+    catch { /* skip */ }
+}
+function extractNuGetDevDeps(workspacePath, devDeps) {
+    // packages.config: developmentDependency="true"
+    const pkgConfigPath = path.join(workspacePath, 'packages.config');
+    if (fs.existsSync(pkgConfigPath)) {
+        try {
+            const content = fs.readFileSync(pkgConfigPath, 'utf8');
+            const regex = /<package\s[^>]*id="([^"]+)"[^>]*developmentDependency="true"[^>]*\/>/gi;
+            let m;
+            while ((m = regex.exec(content)) !== null)
+                devDeps.add(m[1].toLowerCase());
+        }
+        catch { /* skip */ }
+    }
+    // .csproj files: PackageReference with <PrivateAssets>all</PrivateAssets>
+    try {
+        const rootEntries = fs.readdirSync(workspacePath);
+        for (const entry of rootEntries) {
+            if (!entry.endsWith('.csproj'))
+                continue;
+            try {
+                const content = fs.readFileSync(path.join(workspacePath, entry), 'utf8');
+                // Multi-line form
+                const multiLine = /<PackageReference\s+Include="([^"]+)"[^>]*>([\s\S]*?)<\/PackageReference>/g;
+                let m;
+                while ((m = multiLine.exec(content)) !== null) {
+                    if (/<PrivateAssets>\s*[Aa]ll\s*<\/PrivateAssets>/.test(m[2])) {
+                        devDeps.add(m[1].toLowerCase());
+                    }
+                }
+                // Self-closing form with PrivateAssets attribute
+                const selfClosing = /<PackageReference\s+Include="([^"]+)"[^/]*PrivateAssets="[Aa]ll"[^/]*\/>/g;
+                while ((m = selfClosing.exec(content)) !== null)
+                    devDeps.add(m[1].toLowerCase());
+            }
+            catch { /* skip this file */ }
+        }
+    }
+    catch { /* skip */ }
+}
+function extractPubDevDeps(workspacePath, devDeps) {
+    const pubspecPath = path.join(workspacePath, 'pubspec.yaml');
+    if (!fs.existsSync(pubspecPath))
+        return;
+    try {
+        const lines = fs.readFileSync(pubspecPath, 'utf8').split('\n');
+        let inDevDeps = false;
+        for (const line of lines) {
+            if (line.startsWith('dev_dependencies:')) {
+                inDevDeps = true;
+                continue;
+            }
+            // Any non-indented line starts a new top-level key
+            if (inDevDeps && line.length > 0 && !/^\s/.test(line)) {
+                inDevDeps = false;
+            }
+            if (inDevDeps) {
+                const match = line.match(/^\s+([\w-]+)\s*:/);
+                if (match)
+                    devDeps.add(match[1].toLowerCase());
+            }
+        }
+    }
+    catch { /* skip */ }
+}
 function assessContextualRisk(threats, workspacePath, ecosystems) {
     core.info('Component 5: Waking up Contextual Risk Solver...');
     const devDependencies = new Set();
-    try {
-        // Dynamically parse dev dependencies based on the ecosystems detected in Component 1
-        if (ecosystems.includes('npm')) {
-            const pkgPath = path.join(workspacePath, 'package.json');
-            if (fs.existsSync(pkgPath)) {
-                const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-                Object.keys(pkg.devDependencies || {}).forEach(dep => devDependencies.add(dep.toLowerCase()));
-            }
-        }
-        if (ecosystems.includes('pip')) {
-            // Python typically separates dev tools into requirements-dev.txt
-            const reqDevPath = path.join(workspacePath, 'requirements-dev.txt');
-            if (fs.existsSync(reqDevPath)) {
-                const content = fs.readFileSync(reqDevPath, 'utf8');
-                content.split('\n').forEach(line => {
-                    const cleanName = line.split(/[=<>~]/)[0].trim().toLowerCase();
-                    if (cleanName)
-                        devDependencies.add(cleanName);
-                });
-            }
-        }
-        // As you expand to Go, Rust, etc., you just add their specific parser blocks here.
-    }
-    catch (e) {
-        core.warning('Could not parse local manifests for context assessment. Defaulting to HIGH risk for all threats.');
-    }
+    // Run the extractor for every detected ecosystem.
+    // Each is individually guarded — one failure doesn't block the others.
+    if (ecosystems.includes('npm'))
+        extractNpmDevDeps(workspacePath, devDependencies);
+    if (ecosystems.includes('pip'))
+        extractPipDevDeps(workspacePath, devDependencies);
+    if (ecosystems.includes('rubygems'))
+        extractRubyDevDeps(workspacePath, devDependencies);
+    if (ecosystems.includes('crates'))
+        extractCargoDevDeps(workspacePath, devDependencies);
+    if (ecosystems.includes('maven'))
+        extractMavenDevDeps(workspacePath, devDependencies);
+    if (ecosystems.includes('composer'))
+        extractComposerDevDeps(workspacePath, devDependencies);
+    if (ecosystems.includes('nuget'))
+        extractNuGetDevDeps(workspacePath, devDependencies);
+    if (ecosystems.includes('pub'))
+        extractPubDevDeps(workspacePath, devDependencies);
+    // Go, Swift, Actions: no dev-dependency distinction — all treated as production
+    core.info(`Identified ${devDependencies.size} dev-only packages across all ecosystems.`);
     const assessedThreats = threats.map(threat => {
-        const isDev = devDependencies.has(threat.packageName.toLowerCase());
-        // If we can prove it is a dev dependency, reduce the risk. Otherwise, assume it is in production.
-        const contextTag = isDev ? 'REDUCED RISK (Dev Environment)' : 'HIGH RISK (Production Environment)';
+        const isDev = devDependencies.has(threat.packageName?.toLowerCase());
+        const contextTag = isDev
+            ? 'REDUCED RISK (Dev Environment)'
+            : 'HIGH RISK (Production Environment)';
+        // Priority score: severity is the primary key, prod/dev is the tiebreaker.
+        // CRITICAL prod = 45, CRITICAL dev = 40, HIGH prod = 35, HIGH dev = 30, ...
+        const severityWeight = SEVERITY_WEIGHTS[threat.severity?.toUpperCase()] || 0;
+        const priorityScore = severityWeight * 10 + (isDev ? 0 : 5);
         return {
             ...threat,
             contextualRisk: contextTag,
-            isDevDependency: isDev
+            isDevDependency: isDev,
+            priorityScore,
         };
     });
     core.info(`Assessed context for ${assessedThreats.length} verified threats.`);
-    // Print the first assessed threat to prove it worked
     if (assessedThreats.length > 0) {
-        core.info(`Context Result: ${assessedThreats[0].packageName} ➔ ${assessedThreats[0].contextualRisk}`);
+        core.info(`Top threat: ${assessedThreats[0].packageName} -> ${assessedThreats[0].contextualRisk}`);
     }
     return assessedThreats;
 }
@@ -30302,42 +30539,85 @@ exports.detectEcosystems = detectEcosystems;
 const fs = __importStar(__nccwpck_require__(9896));
 const path = __importStar(__nccwpck_require__(6928));
 const core = __importStar(__nccwpck_require__(7484));
-// We updated the return type to an object containing both the ecosystems array AND the SBOM status
 async function detectEcosystems(workspacePath) {
     const ecosystems = [];
     let hasSbom = false;
     try {
         core.info(`Component 1: Scanning workspace: ${workspacePath}`);
-        // --- NEW: SBOM DETECTION ---
+        // SBOM detection
         const sbomSignatures = ['sbom.json', 'bom.xml', 'cyclonedx.json', 'spdx.json', 'spdx.yaml', 'bom.json'];
         for (const sbom of sbomSignatures) {
             if (fs.existsSync(path.join(workspacePath, sbom))) {
                 core.info(`Found SBOM file: ${sbom}`);
                 hasSbom = true;
-                break; // Stop looking once we find one
+                break;
             }
         }
         if (!hasSbom) {
             core.info('No local SBOM file detected. Pipeline will rely entirely on GitHub Dependency Graph.');
         }
-        // --- EXISTING: ECOSYSTEM DETECTION ---
+        // Fixed-filename ecosystem signatures
         const signatures = [
+            // npm / Node.js
             { file: 'package.json', ecosystem: 'npm' },
+            // Python
             { file: 'requirements.txt', ecosystem: 'pip' },
             { file: 'Pipfile', ecosystem: 'pip' },
             { file: 'poetry.lock', ecosystem: 'pip' },
+            { file: 'pyproject.toml', ecosystem: 'pip' },
+            // Ruby
             { file: 'Gemfile', ecosystem: 'rubygems' },
+            // Rust
             { file: 'Cargo.toml', ecosystem: 'crates' },
-            { file: 'go.mod', ecosystem: 'go' }
+            // Go
+            { file: 'go.mod', ecosystem: 'go' },
+            // Java / Maven
+            { file: 'pom.xml', ecosystem: 'maven' },
+            { file: 'build.gradle', ecosystem: 'maven' },
+            { file: 'build.gradle.kts', ecosystem: 'maven' },
+            // PHP / Composer
+            { file: 'composer.json', ecosystem: 'composer' },
+            // Swift
+            { file: 'Package.swift', ecosystem: 'swift' },
+            // Dart / Flutter
+            { file: 'pubspec.yaml', ecosystem: 'pub' },
+            // Elixir / Erlang
+            { file: 'mix.exs', ecosystem: 'erlang' },
+            { file: 'rebar.config', ecosystem: 'erlang' },
+            // NuGet (packages.config — fixed filename variant)
+            { file: 'packages.config', ecosystem: 'nuget' },
         ];
         for (const sig of signatures) {
             const fullPath = path.join(workspacePath, sig.file);
             if (fs.existsSync(fullPath)) {
-                core.info(`Found signature file: ${sig.file} ➔ Target Ecosystem: ${sig.ecosystem}`);
+                core.info(`Found signature file: ${sig.file} -> Target Ecosystem: ${sig.ecosystem}`);
                 if (!ecosystems.includes(sig.ecosystem)) {
                     ecosystems.push(sig.ecosystem);
                 }
             }
+        }
+        // NuGet: also scan root for *.csproj (no fixed filename)
+        if (!ecosystems.includes('nuget')) {
+            try {
+                const rootEntries = fs.readdirSync(workspacePath);
+                if (rootEntries.some(f => f.endsWith('.csproj'))) {
+                    core.info('Found .csproj file -> Target Ecosystem: nuget');
+                    ecosystems.push('nuget');
+                }
+            }
+            catch { /* non-critical */ }
+        }
+        // Actions: detect if the repo has any GitHub Actions workflow files
+        const workflowsDir = path.join(workspacePath, '.github', 'workflows');
+        if (fs.existsSync(workflowsDir)) {
+            try {
+                const workflowFiles = fs.readdirSync(workflowsDir);
+                if (workflowFiles.some(f => f.endsWith('.yml') || f.endsWith('.yaml'))) {
+                    core.info('Found GitHub Actions workflow files -> Target Ecosystem: actions');
+                    ecosystems.push('actions');
+                }
+            }
+            catch { /* non-critical */ }
         }
         if (ecosystems.length === 0) {
             core.notice('No recognizable package manager files found. Pipeline halting safely.');
@@ -30401,11 +30681,9 @@ function generateRemediationQueue(assessedThreats) {
         core.info('Queue empty. No remediation required.');
         return;
     }
-    const sortedThreats = assessedThreats.sort((a, b) => {
-        if (a.isDevDependency === b.isDevDependency)
-            return 0;
-        return a.isDevDependency ? 1 : -1;
-    });
+    // Sort descending by priorityScore (set by contextual-risk-solver).
+    // Severity is the primary key; prod/dev is the tiebreaker within the same severity.
+    const sortedThreats = [...assessedThreats].sort((a, b) => b.priorityScore - a.priorityScore);
     core.info('=========================================');
     core.info('         FINAL REMEDIATION QUEUE         ');
     core.info('=========================================');
@@ -30414,6 +30692,7 @@ function generateRemediationQueue(assessedThreats) {
         core.info(`    Identifier:    ${threat.ghsaId}`);
         core.info(`    Base Severity: ${threat.severity}`);
         core.info(`    Context:       ${threat.contextualRisk}`);
+        core.info(`    Priority Score:${threat.priorityScore}`);
         core.info(`    Versions:      ${threat.vulnerableVersionRange}`);
         core.info(`    Details:       ${threat.summary}`);
         core.info('-----------------------------------------');
