@@ -29975,7 +29975,6 @@ const github = __importStar(__nccwpck_require__(3228));
 async function fetchRecentAdvisories(token, ecosystems) {
     const octokit = github.getOctokit(token);
     const allAdvisories = [];
-    // Map our simple ecosystem strings to GitHub's exact GraphQL Enums
     const ecosystemMap = {
         'npm': 'NPM',
         'pip': 'PIP',
@@ -29998,41 +29997,37 @@ async function fetchRecentAdvisories(token, ecosystems) {
                 core.warning(`Unknown ecosystem for GraphQL: ${eco}`);
                 continue;
             }
-            core.info(`Fetching latest threat intel for ecosystem: ${graphqlEnum}...`);
-            // Querying 'securityVulnerabilities'
+            core.info(`Fetching latest 10 advisories for ecosystem: ${graphqlEnum}...`);
             const query = `
         query($ecosystem: SecurityAdvisoryEcosystem) {
-          securityVulnerabilities(first: 50, ecosystem: $ecosystem, orderBy: {field: UPDATED_AT, direction: DESC}) {
+          securityVulnerabilities(first: 10, ecosystem: $ecosystem, orderBy: {field: UPDATED_AT, direction: DESC}) {
             nodes {
               severity
-              package { name }
               vulnerableVersionRange
-              advisory {
-                ghsaId
-                summary
-              }
+              firstPatchedVersion { identifier }
+              package { name }
+              advisory { ghsaId summary description }
             }
           }
         }
       `;
             const response = await octokit.graphql(query, { ecosystem: graphqlEnum });
-            const vulnerabilities = response.securityVulnerabilities.nodes;
-            core.info(`Pulled ${vulnerabilities.length} raw vulnerabilities for ${graphqlEnum}.`);
-            //Print a single real-time sample from the global threat database ---
-            if (vulnerabilities.length > 0) {
-                const sample = vulnerabilities[0];
-                core.info(`Sample Threat Fetched: ${sample.package.name}: ${sample.advisory.summary} (Severity: ${sample.severity})`);
-            }
-            // Map the nested GraphQL response into a clean, flat object for our pipeline
-            const formattedData = vulnerabilities.map((v) => ({
+            const nodes = response.securityVulnerabilities.nodes;
+            core.info(`Pulled ${nodes.length} advisories from the CTI feed for ${graphqlEnum}.`);
+            nodes.forEach((v, i) => {
+                core.info(`  [${i + 1}] ${v.package.name} ${v.vulnerableVersionRange} — ${v.advisory.summary} (${v.severity})`);
+            });
+            const formatted = nodes.map((v) => ({
                 ghsaId: v.advisory.ghsaId,
                 summary: v.advisory.summary,
+                description: v.advisory.description,
                 severity: v.severity,
                 packageName: v.package.name,
                 vulnerableVersionRange: v.vulnerableVersionRange,
+                firstPatchedVersion: v.firstPatchedVersion?.identifier ?? null,
                 ecosystem: eco,
             }));
-            allAdvisories.push(...formattedData);
+            allAdvisories.push(...formatted);
         }
         return allAdvisories;
     }
@@ -30249,21 +30244,35 @@ function extractImportBindings(tree, packageName) {
 //   Router()               callee is identifier 'Router'
 function findEIFNodes(tree, bindings) {
     const nodes = [];
+    // Regular call expressions: binding() or binding.method()
     for (const call of tree.rootNode.descendantsOfType('call_expression')) {
         const fn = call.childForFieldName('function');
         if (!fn)
             continue;
-        let isEIF = false;
         if (fn.type === 'identifier' && bindings.has(fn.text)) {
-            isEIF = true;
+            nodes.push(call);
         }
         else if (fn.type === 'member_expression') {
             const obj = fn.childForFieldName('object');
             if (obj?.type === 'identifier' && bindings.has(obj.text))
-                isEIF = true;
+                nodes.push(call);
         }
-        if (isEIF)
-            nodes.push(call);
+    }
+    // Constructor calls: new Binding(...) — a distinct node type in the grammar.
+    // Instantiating a vulnerable class is itself an EIF (e.g. new Client({ endpoint })
+    // triggers the URL validation path where the vulnerability lives).
+    for (const newExpr of tree.rootNode.descendantsOfType('new_expression')) {
+        const ctor = newExpr.childForFieldName('constructor');
+        if (!ctor)
+            continue;
+        if (ctor.type === 'identifier' && bindings.has(ctor.text)) {
+            nodes.push(newExpr);
+        }
+        else if (ctor.type === 'member_expression') {
+            const obj = ctor.childForFieldName('object');
+            if (obj?.type === 'identifier' && bindings.has(obj.text))
+                nodes.push(newExpr);
+        }
     }
     return nodes;
 }
@@ -30286,10 +30295,17 @@ function getEnclosingFunction(node) {
     return null;
 }
 function buildCallerSlice(fn, source, file) {
+    // Named function declarations have a 'name' field directly.
+    // Arrow functions and function expressions assigned to a variable don't —
+    // the name lives on the parent variable_declarator instead.
     const nameNode = fn.childForFieldName('name');
+    let functionName = nameNode?.text;
+    if (!functionName && fn.parent?.type === 'variable_declarator') {
+        functionName = fn.parent.childForFieldName('name')?.text;
+    }
     return {
         file,
-        functionName: nameNode?.text ?? '<anonymous>',
+        functionName: functionName ?? '<anonymous>',
         sourceText: source.slice(fn.startIndex, fn.endIndex),
         startLine: fn.startPosition.row + 1,
         endLine: fn.endPosition.row + 1,
@@ -31204,6 +31220,8 @@ async function main() {
             return;
         }
         // --- COMPONENT 2: ALERT FETCHER ---
+        // Fetches the 10 most recently updated advisories per detected ecosystem.
+        // Hourly schedule ensures emerging vulnerabilities are caught within minutes of publication.
         const rawAdvisories = await (0, alert_fetcher_1.fetchRecentAdvisories)(token, detectedEcosystems);
         if (rawAdvisories.length === 0) {
             core.info('No recent advisories found. Exiting successfully.');
@@ -31211,10 +31229,8 @@ async function main() {
         }
         // --- COMPONENT 3: DEPENDENCY MAPPER ---
         const localDependencies = await (0, dependency_mapper_1.getRepositoryDependencies)(token, hasSbom, workspacePath);
-        // Check for API timeout/failure handler
         if (localDependencies === null) {
-            core.error('CRITICAL PIPELINE HALT: Dependency Mapper failed to retrieve your local repository map due to an upstream API timeout or configuration error.');
-            core.info('Action Plan: Check if GitHub Dependency Graph is enabled in your repository settings or retry the run.');
+            core.error('CRITICAL PIPELINE HALT: Dependency Mapper failed. Check that the GitHub Dependency Graph is enabled for this repository.');
             return;
         }
         // --- COMPONENT 4: VULNERABILITY FILTER ---
@@ -31232,7 +31248,6 @@ async function main() {
         if (npmThreats.length > 0) {
             core.info(`${npmThreats.length} npm threat(s) routed to deep AST analysis.`);
             await (0, ast_analyzer_1.analyzeCodeUsage)(npmThreats, workspacePath);
-            // Phase 3 (Red Team) will consume the code slices returned here
         }
         else {
             core.info('No npm threats in queue. Skipping AST analysis.');

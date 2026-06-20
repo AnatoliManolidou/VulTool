@@ -23,24 +23,23 @@ async function main() {
     const { ecosystems: detectedEcosystems, hasSbom } = await detectEcosystems(workspacePath);
     if (detectedEcosystems.length === 0) {
       core.info('No ecosystems to analyze. Exiting successfully.');
-      return; 
+      return;
     }
 
     // --- COMPONENT 2: ALERT FETCHER ---
+    // Fetches the 10 most recently updated advisories per detected ecosystem.
+    // Hourly schedule ensures emerging vulnerabilities are caught within minutes of publication.
     const rawAdvisories = await fetchRecentAdvisories(token, detectedEcosystems);
     if (rawAdvisories.length === 0) {
       core.info('No recent advisories found. Exiting successfully.');
       return;
     }
 
-   // --- COMPONENT 3: DEPENDENCY MAPPER ---
+    // --- COMPONENT 3: DEPENDENCY MAPPER ---
     const localDependencies = await getRepositoryDependencies(token, hasSbom, workspacePath);
-    
-    // Check for API timeout/failure handler
     if (localDependencies === null) {
-      core.error('CRITICAL PIPELINE HALT: Dependency Mapper failed to retrieve your local repository map due to an upstream API timeout or configuration error.');
-      core.info('Action Plan: Check if GitHub Dependency Graph is enabled in your repository settings or retry the run.');
-      return; 
+      core.error('CRITICAL PIPELINE HALT: Dependency Mapper failed. Check that the GitHub Dependency Graph is enabled for this repository.');
+      return;
     }
 
     // --- COMPONENT 4: VULNERABILITY FILTER ---
@@ -61,7 +60,6 @@ async function main() {
     if (npmThreats.length > 0) {
       core.info(`${npmThreats.length} npm threat(s) routed to deep AST analysis.`);
       await analyzeCodeUsage(npmThreats, workspacePath);
-      // Phase 3 (Red Team) will consume the code slices returned here
     } else {
       core.info('No npm threats in queue. Skipping AST analysis.');
     }

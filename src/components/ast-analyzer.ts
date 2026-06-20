@@ -181,19 +181,33 @@ function extractImportBindings(tree: Parser.Tree, packageName: string): Set<stri
 
 function findEIFNodes(tree: Parser.Tree, bindings: Set<string>): Parser.SyntaxNode[] {
   const nodes: Parser.SyntaxNode[] = [];
+
+  // Regular call expressions: binding() or binding.method()
   for (const call of tree.rootNode.descendantsOfType('call_expression')) {
     const fn = call.childForFieldName('function');
     if (!fn) continue;
-
-    let isEIF = false;
     if (fn.type === 'identifier' && bindings.has(fn.text)) {
-      isEIF = true;
+      nodes.push(call);
     } else if (fn.type === 'member_expression') {
       const obj = fn.childForFieldName('object');
-      if (obj?.type === 'identifier' && bindings.has(obj.text)) isEIF = true;
+      if (obj?.type === 'identifier' && bindings.has(obj.text)) nodes.push(call);
     }
-    if (isEIF) nodes.push(call);
   }
+
+  // Constructor calls: new Binding(...) — a distinct node type in the grammar.
+  // Instantiating a vulnerable class is itself an EIF (e.g. new Client({ endpoint })
+  // triggers the URL validation path where the vulnerability lives).
+  for (const newExpr of tree.rootNode.descendantsOfType('new_expression')) {
+    const ctor = newExpr.childForFieldName('constructor');
+    if (!ctor) continue;
+    if (ctor.type === 'identifier' && bindings.has(ctor.text)) {
+      nodes.push(newExpr);
+    } else if (ctor.type === 'member_expression') {
+      const obj = ctor.childForFieldName('object');
+      if (obj?.type === 'identifier' && bindings.has(obj.text)) nodes.push(newExpr);
+    }
+  }
+
   return nodes;
 }
 
@@ -218,10 +232,17 @@ function getEnclosingFunction(node: Parser.SyntaxNode): Parser.SyntaxNode | null
 }
 
 function buildCallerSlice(fn: Parser.SyntaxNode, source: string, file: string): CallerSlice {
+  // Named function declarations have a 'name' field directly.
+  // Arrow functions and function expressions assigned to a variable don't —
+  // the name lives on the parent variable_declarator instead.
   const nameNode = fn.childForFieldName('name');
+  let functionName = nameNode?.text;
+  if (!functionName && fn.parent?.type === 'variable_declarator') {
+    functionName = fn.parent.childForFieldName('name')?.text;
+  }
   return {
     file,
-    functionName: nameNode?.text ?? '<anonymous>',
+    functionName: functionName ?? '<anonymous>',
     sourceText:   source.slice(fn.startIndex, fn.endIndex),
     startLine:    fn.startPosition.row + 1,
     endLine:      fn.endPosition.row + 1,
