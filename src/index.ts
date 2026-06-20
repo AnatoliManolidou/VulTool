@@ -5,6 +5,7 @@ import { getRepositoryDependencies } from './components/dependency-mapper';
 import { filterAdvisories } from './components/vulnerability-filter';
 import { assessContextualRisk } from './components/contextual-risk-solver';
 import { generateRemediationQueue } from './components/remediation-queue';
+import { analyzeCodeUsage } from './components/ast-analyzer';
 
 async function main() {
   try {
@@ -53,7 +54,17 @@ async function main() {
     const contextualizedThreats = assessContextualRisk(finalThreats, workspacePath, detectedEcosystems);
 
     // --- COMPONENT 6: REMEDIATION QUEUE ---
-    generateRemediationQueue(contextualizedThreats);
+    const sortedThreats = generateRemediationQueue(contextualizedThreats);
+
+    // --- COMPONENT 7: AST ANALYZER (npm threats only) ---
+    const npmThreats = sortedThreats.filter((t: any) => t.ecosystem === 'npm');
+    if (npmThreats.length > 0) {
+      core.info(`${npmThreats.length} npm threat(s) routed to deep AST analysis.`);
+      await analyzeCodeUsage(npmThreats, workspacePath);
+      // Phase 3 (Red Team) will consume the code slices returned here
+    } else {
+      core.info('No npm threats in queue. Skipping AST analysis.');
+    }
 
     core.info('Pipeline finished successfully.');
 

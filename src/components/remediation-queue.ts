@@ -1,11 +1,11 @@
 import * as core from '@actions/core';
 
-export function generateRemediationQueue(assessedThreats: any[]) {
+export function generateRemediationQueue(assessedThreats: any[]): any[] {
   core.info('Component 6: Waking up Remediation Queue...');
 
   if (assessedThreats.length === 0) {
     core.info('Queue empty. No remediation required.');
-    return;
+    return [];
   }
 
   // Sort descending by priorityScore (set by contextual-risk-solver).
@@ -19,6 +19,7 @@ export function generateRemediationQueue(assessedThreats: any[]) {
   sortedThreats.forEach((threat, index) => {
     core.info(`[Priority ${index + 1}] Package: ${threat.packageName}`);
     core.info(`    Identifier:    ${threat.ghsaId}`);
+    core.info(`    Ecosystem:     ${threat.ecosystem}`);
     core.info(`    Base Severity: ${threat.severity}`);
     core.info(`    Context:       ${threat.contextualRisk}`);
     core.info(`    Priority Score:${threat.priorityScore}`);
@@ -26,4 +27,6 @@ export function generateRemediationQueue(assessedThreats: any[]) {
     core.info(`    Details:       ${threat.summary}`);
     core.info('-----------------------------------------');
   });
+
+  return sortedThreats;
 }

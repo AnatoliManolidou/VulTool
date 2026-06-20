@@ -5,6 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "ncc build src/index.ts -o dist --source-map --license licenses.txt",
+    "postbuild": "cp node_modules/web-tree-sitter/tree-sitter.wasm dist/ && cp wasm/tree-sitter-javascript.wasm dist/",
     "test": "jest"
   },
   "dependencies": {
