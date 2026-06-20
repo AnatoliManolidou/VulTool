@@ -67,7 +67,8 @@ export async function fetchRecentAdvisories(token: string, ecosystems: string[])
         summary: v.advisory.summary,
         severity: v.severity,
         packageName: v.package.name,
-        vulnerableVersionRange: v.vulnerableVersionRange
+        vulnerableVersionRange: v.vulnerableVersionRange,
+        ecosystem: eco,
       }));
 
       allAdvisories.push(...formattedData);
