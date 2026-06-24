@@ -43,7 +43,7 @@ async function main() {
     }
 
     // --- COMPONENT 4: VULNERABILITY FILTER ---
-    const finalThreats = filterAdvisories(rawAdvisories, threshold, localDependencies);
+    const finalThreats = filterAdvisories(rawAdvisories, threshold, localDependencies, workspacePath);
     if (finalThreats.length === 0) {
       core.info('No matching vulnerabilities found in your dependencies.');
       return;
