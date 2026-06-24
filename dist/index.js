@@ -29987,7 +29987,6 @@ async function fetchRecentAdvisories(token, ecosystems) {
         'swift': 'SWIFT',
         'pub': 'PUB',
         'erlang': 'ERLANG',
-        'actions': 'ACTIONS',
     };
     try {
         core.info('Component 2: Waking up Alert Fetcher...');
@@ -30878,7 +30877,7 @@ async function getRepositoryDependencies(token, hasSbom, workspacePath) {
 
 /***/ }),
 
-/***/ 6303:
+/***/ 8663:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 "use strict";
@@ -30925,7 +30924,8 @@ async function detectEcosystems(workspacePath) {
     const ecosystems = [];
     let hasSbom = false;
     try {
-        core.info(`Component 1: Scanning workspace: ${workspacePath}`);
+        core.info(`Component 1: Waking up Ecosystem Detector...`);
+        core.info(`Scanning workspace: ${workspacePath}`);
         // SBOM detection
         const sbomSignatures = ['sbom.json', 'bom.xml', 'cyclonedx.json', 'spdx.json', 'spdx.yaml', 'bom.json'];
         for (const sbom of sbomSignatures) {
@@ -30989,25 +30989,13 @@ async function detectEcosystems(workspacePath) {
             }
             catch { /* non-critical */ }
         }
-        // Actions: detect if the repo has any GitHub Actions workflow files
-        const workflowsDir = path.join(workspacePath, '.github', 'workflows');
-        if (fs.existsSync(workflowsDir)) {
-            try {
-                const workflowFiles = fs.readdirSync(workflowsDir);
-                if (workflowFiles.some(f => f.endsWith('.yml') || f.endsWith('.yaml'))) {
-                    core.info('Found GitHub Actions workflow files -> Target Ecosystem: actions');
-                    ecosystems.push('actions');
-                }
-            }
-            catch { /* non-critical */ }
-        }
         if (ecosystems.length === 0) {
             core.notice('No recognizable package manager files found. Pipeline halting safely.');
         }
     }
     catch (error) {
         if (error instanceof Error) {
-            core.error(`Language detection failed: ${error.message}`);
+            core.error(`Ecosystem detection failed: ${error.message}`);
         }
     }
     return { ecosystems, hasSbom };
@@ -31198,7 +31186,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 const core = __importStar(__nccwpck_require__(7484));
-const language_detector_1 = __nccwpck_require__(6303);
+const ecosystem_detector_1 = __nccwpck_require__(8663);
 const alert_fetcher_1 = __nccwpck_require__(884);
 const dependency_mapper_1 = __nccwpck_require__(645);
 const vulnerability_filter_1 = __nccwpck_require__(7213);
@@ -31214,7 +31202,7 @@ async function main() {
         core.info(`Target Threshold: ${threshold}\n`);
         const workspacePath = process.env.GITHUB_WORKSPACE || process.cwd();
         // --- COMPONENT 1: LANGUAGE & SBOM DETECTOR ---
-        const { ecosystems: detectedEcosystems, hasSbom } = await (0, language_detector_1.detectEcosystems)(workspacePath);
+        const { ecosystems: detectedEcosystems, hasSbom } = await (0, ecosystem_detector_1.detectEcosystems)(workspacePath);
         if (detectedEcosystems.length === 0) {
             core.info('No ecosystems to analyze. Exiting successfully.');
             return;

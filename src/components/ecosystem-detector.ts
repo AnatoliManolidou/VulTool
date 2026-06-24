@@ -7,7 +7,8 @@ export async function detectEcosystems(workspacePath: string): Promise<{ ecosyst
   let hasSbom = false;
 
   try {
-    core.info(`Component 1: Scanning workspace: ${workspacePath}`);
+    core.info(`Component 1: Waking up Ecosystem Detector...`);
+    core.info(`Scanning workspace: ${workspacePath}`);
 
     // SBOM detection
     const sbomSignatures = ['sbom.json', 'bom.xml', 'cyclonedx.json', 'spdx.json', 'spdx.yaml', 'bom.json'];
@@ -76,25 +77,13 @@ export async function detectEcosystems(workspacePath: string): Promise<{ ecosyst
       } catch { /* non-critical */ }
     }
 
-    // Actions: detect if the repo has any GitHub Actions workflow files
-    const workflowsDir = path.join(workspacePath, '.github', 'workflows');
-    if (fs.existsSync(workflowsDir)) {
-      try {
-        const workflowFiles = fs.readdirSync(workflowsDir);
-        if (workflowFiles.some(f => f.endsWith('.yml') || f.endsWith('.yaml'))) {
-          core.info('Found GitHub Actions workflow files -> Target Ecosystem: actions');
-          ecosystems.push('actions');
-        }
-      } catch { /* non-critical */ }
-    }
-
     if (ecosystems.length === 0) {
       core.notice('No recognizable package manager files found. Pipeline halting safely.');
     }
 
   } catch (error) {
     if (error instanceof Error) {
-      core.error(`Language detection failed: ${error.message}`);
+      core.error(`Ecosystem detection failed: ${error.message}`);
     }
   }
 

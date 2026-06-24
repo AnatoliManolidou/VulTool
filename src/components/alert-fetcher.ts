@@ -17,7 +17,6 @@ export async function fetchRecentAdvisories(token: string, ecosystems: string[])
     'swift':    'SWIFT',
     'pub':      'PUB',
     'erlang':   'ERLANG',
-    'actions':  'ACTIONS',
   };
 
   try {

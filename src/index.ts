@@ -1,5 +1,5 @@
 import * as core from '@actions/core';
-import { detectEcosystems } from './components/language-detector';
+import { detectEcosystems } from './components/ecosystem-detector';
 import { fetchRecentAdvisories } from './components/alert-fetcher';
 import { getRepositoryDependencies } from './components/dependency-mapper';
 import { filterAdvisories } from './components/vulnerability-filter';
