@@ -30828,11 +30828,34 @@ function extractPubDevDeps(workspacePath, devDeps) {
     }
     catch { /* skip */ }
 }
+function extractErlangDevDeps(workspacePath, devDeps) {
+    // mix.exs uses {: atom syntax to declare deps.
+    // Dev/test deps are marked with `only: :test`, `only: [:dev]`, `only: [:dev, :test]` etc.
+    const mixPath = path.join(workspacePath, 'mix.exs');
+    if (!fs.existsSync(mixPath))
+        return;
+    try {
+        const lines = fs.readFileSync(mixPath, 'utf8').split('\n');
+        for (const line of lines) {
+            if (!line.includes('only:'))
+                continue;
+            const onlyMatch = line.match(/only:\s*(?:\[([^\]]+)\]|(:[\w]+))/);
+            if (!onlyMatch)
+                continue;
+            const onlyValue = (onlyMatch[1] ?? onlyMatch[2] ?? '').toLowerCase();
+            if (!onlyValue.includes(':dev') && !onlyValue.includes(':test'))
+                continue;
+            const nameMatch = line.match(/\{:(\w+)/);
+            if (nameMatch)
+                devDeps.add(nameMatch[1].toLowerCase());
+        }
+    }
+    catch { /* skip */ }
+}
 function classifyDeploymentContext(threats, workspacePath, ecosystems) {
     core.info('Component 5: Waking up Deployment Classifier...');
     const devDependencies = new Set();
-    // Run the extractor for every detected ecosystem.
-    // Each is individually guarded — one failure doesn't block the others.
+    // Each extractor is individually guarded — one failure doesn't block the others.
     if (ecosystems.includes('npm'))
         extractNpmDevDeps(workspacePath, devDependencies);
     if (ecosystems.includes('pip'))
@@ -30849,7 +30872,9 @@ function classifyDeploymentContext(threats, workspacePath, ecosystems) {
         extractNuGetDevDeps(workspacePath, devDependencies);
     if (ecosystems.includes('pub'))
         extractPubDevDeps(workspacePath, devDependencies);
-    // Go, Swift, Erlang: handled below / no dev-dependency distinction — all treated as production
+    if (ecosystems.includes('erlang'))
+        extractErlangDevDeps(workspacePath, devDependencies);
+    // Go and Swift have no dev-dependency distinction — all deps treated as production
     core.info(`Identified ${devDependencies.size} dev-only packages across all ecosystems.`);
     const assessedThreats = threats.map(threat => {
         const isDev = devDependencies.has(threat.packageName?.toLowerCase());
