@@ -41574,55 +41574,21 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.getRepositoryDependencies = getRepositoryDependencies;
-const fs = __importStar(__nccwpck_require__(79896));
-const path = __importStar(__nccwpck_require__(16928));
 const core = __importStar(__nccwpck_require__(37484));
 const github = __importStar(__nccwpck_require__(93228));
-async function getRepositoryDependencies(token, hasSbom, workspacePath) {
+/**
+ * Returns a lowercased list of every package name in the repository's
+ * dependency graph, sourced exclusively from the GitHub Dependency Graph API.
+ *
+ * Returns null on hard failure (API down, Dependency Graph disabled) so the
+ * pipeline can halt rather than producing false negatives.
+ */
+async function getRepositoryDependencies(token, workspacePath) {
     const packageNames = new Set();
-    // STRATEGY A: Local SBOM Parsing
-    if (hasSbom) {
-        core.info('Component 3: Local SBOM detected. Parsing local file for dependency mapping...');
-        try {
-            const sbomFiles = ['sbom.json', 'cyclonedx.json', 'spdx.json', 'bom.json'];
-            let sbomData = null;
-            for (const file of sbomFiles) {
-                const fullPath = path.join(workspacePath, file);
-                if (fs.existsSync(fullPath)) {
-                    core.info(`Reading SBOM target: ${file}`);
-                    sbomData = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
-                    break;
-                }
-            }
-            if (sbomData) {
-                if (sbomData.components && Array.isArray(sbomData.components)) {
-                    sbomData.components.forEach((comp) => {
-                        if (comp.name)
-                            packageNames.add(comp.name.toLowerCase());
-                    });
-                }
-                else if (sbomData.packages && Array.isArray(sbomData.packages)) {
-                    sbomData.packages.forEach((pkg) => {
-                        if (pkg.name)
-                            packageNames.add(pkg.name.toLowerCase());
-                    });
-                }
-                const depsArray = Array.from(packageNames);
-                core.info(`Mapped ${depsArray.length} unique dependencies directly from local SBOM.`);
-                return depsArray;
-            }
-        }
-        catch (error) {
-            if (error instanceof Error) {
-                core.warning(`Failed to parse local SBOM: ${error.message}. Falling back to GitHub API.`);
-            }
-        }
-    }
-    // STRATEGY B: Fallback to GitHub Dependency Graph API
     const octokit = github.getOctokit(token);
     const { owner, repo } = github.context.repo;
     try {
-        core.info(`Component 3: Waking up Dependency Mapper API fallback for ${owner}/${repo}...`);
+        core.info(`Component 3: Waking up Dependency Mapper for ${owner}/${repo}...`);
         const query = `
       query($owner: String!, $repo: String!) {
         repository(owner: $owner, name: $repo) {
@@ -41630,9 +41596,7 @@ async function getRepositoryDependencies(token, hasSbom, workspacePath) {
             nodes {
               filename
               dependencies(first: 100) {
-                nodes {
-                  packageName
-                }
+                nodes { packageName }
               }
             }
           }
@@ -41642,27 +41606,24 @@ async function getRepositoryDependencies(token, hasSbom, workspacePath) {
         const response = await octokit.graphql(query, {
             owner,
             repo,
-            headers: {
-                accept: 'application/vnd.github.hawkgirl-preview+json'
-            }
+            headers: { accept: 'application/vnd.github.hawkgirl-preview+json' },
         });
-        const manifests = response.repository?.dependencyGraphManifests?.nodes || [];
+        const manifests = response.repository?.dependencyGraphManifests?.nodes ?? [];
         for (const manifest of manifests) {
-            if (manifest.dependencies && manifest.dependencies.nodes) {
-                for (const dep of manifest.dependencies.nodes) {
+            for (const dep of manifest.dependencies?.nodes ?? []) {
+                if (dep.packageName)
                     packageNames.add(dep.packageName.toLowerCase());
-                }
             }
         }
         const depsArray = Array.from(packageNames);
-        core.info(`Mapped ${depsArray.length} unique dependencies natively from GitHub API.`);
+        core.info(`Mapped ${depsArray.length} unique dependencies from GitHub Dependency Graph.`);
         return depsArray;
     }
     catch (error) {
         if (error instanceof Error) {
-            core.error(`Dependency Mapper API Error: ${error.message}`);
+            core.error(`Dependency Mapper failed: ${error.message}`);
         }
-        return null; //Return null to flag a critical fallback failure
+        return null;
     }
 }
 
@@ -42062,22 +42023,9 @@ const path = __importStar(__nccwpck_require__(16928));
 const core = __importStar(__nccwpck_require__(37484));
 async function detectEcosystems(workspacePath) {
     const ecosystems = [];
-    let hasSbom = false;
     try {
         core.info(`Component 1: Waking up Ecosystem Detector...`);
         core.info(`Scanning workspace: ${workspacePath}`);
-        // SBOM detection
-        const sbomSignatures = ['sbom.json', 'bom.xml', 'cyclonedx.json', 'spdx.json', 'spdx.yaml', 'bom.json'];
-        for (const sbom of sbomSignatures) {
-            if (fs.existsSync(path.join(workspacePath, sbom))) {
-                core.info(`Found SBOM file: ${sbom}`);
-                hasSbom = true;
-                break;
-            }
-        }
-        if (!hasSbom) {
-            core.info('No local SBOM file detected. Pipeline will rely entirely on GitHub Dependency Graph.');
-        }
         // Fixed-filename ecosystem signatures
         const signatures = [
             // npm / Node.js
@@ -42138,7 +42086,7 @@ async function detectEcosystems(workspacePath) {
             core.error(`Ecosystem detection failed: ${error.message}`);
         }
     }
-    return { ecosystems, hasSbom };
+    return { ecosystems };
 }
 
 
@@ -42466,7 +42414,7 @@ async function main() {
         core.info(`Target Threshold: ${threshold}\n`);
         const workspacePath = process.env.GITHUB_WORKSPACE || process.cwd();
         // --- COMPONENT 1: ECOSYSTEM DETECTOR ---
-        const { ecosystems: detectedEcosystems, hasSbom } = await (0, ecosystem_detector_1.detectEcosystems)(workspacePath);
+        const { ecosystems: detectedEcosystems } = await (0, ecosystem_detector_1.detectEcosystems)(workspacePath);
         if (detectedEcosystems.length === 0) {
             core.info('No ecosystems to analyze. Exiting successfully.');
             return;
@@ -42491,7 +42439,7 @@ async function main() {
         const newCount = [...currentIds].filter(id => !lastSeenIds.has(id)).length;
         core.info(`${newCount} new advisory ID(s) detected since last scan. Proceeding with pipeline.`);
         // --- COMPONENT 3: DEPENDENCY MAPPER ---
-        const localDependencies = await (0, dependency_mapper_1.getRepositoryDependencies)(token, hasSbom, workspacePath);
+        const localDependencies = await (0, dependency_mapper_1.getRepositoryDependencies)(token, workspacePath);
         if (localDependencies === null) {
             core.error('CRITICAL PIPELINE HALT: Dependency Mapper failed. Check that the GitHub Dependency Graph is enabled for this repository.');
             return;

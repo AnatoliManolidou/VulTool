@@ -2,27 +2,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as core from '@actions/core';
 
-export async function detectEcosystems(workspacePath: string): Promise<{ ecosystems: string[], hasSbom: boolean }> {
+export async function detectEcosystems(workspacePath: string): Promise<{ ecosystems: string[] }> {
   const ecosystems: string[] = [];
-  let hasSbom = false;
 
   try {
     core.info(`Component 1: Waking up Ecosystem Detector...`);
     core.info(`Scanning workspace: ${workspacePath}`);
-
-    // SBOM detection
-    const sbomSignatures = ['sbom.json', 'bom.xml', 'cyclonedx.json', 'spdx.json', 'spdx.yaml', 'bom.json'];
-    for (const sbom of sbomSignatures) {
-      if (fs.existsSync(path.join(workspacePath, sbom))) {
-        core.info(`Found SBOM file: ${sbom}`);
-        hasSbom = true;
-        break;
-      }
-    }
-
-    if (!hasSbom) {
-      core.info('No local SBOM file detected. Pipeline will rely entirely on GitHub Dependency Graph.');
-    }
 
     // Fixed-filename ecosystem signatures
     const signatures = [
@@ -87,5 +72,5 @@ export async function detectEcosystems(workspacePath: string): Promise<{ ecosyst
     }
   }
 
-  return { ecosystems, hasSbom };
+  return { ecosystems };
 }

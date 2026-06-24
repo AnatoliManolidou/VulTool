@@ -48,7 +48,7 @@ async function main() {
     const workspacePath = process.env.GITHUB_WORKSPACE || process.cwd();
 
     // --- COMPONENT 1: ECOSYSTEM DETECTOR ---
-    const { ecosystems: detectedEcosystems, hasSbom } = await detectEcosystems(workspacePath);
+    const { ecosystems: detectedEcosystems } = await detectEcosystems(workspacePath);
     if (detectedEcosystems.length === 0) {
       core.info('No ecosystems to analyze. Exiting successfully.');
       return;
@@ -78,7 +78,7 @@ async function main() {
     core.info(`${newCount} new advisory ID(s) detected since last scan. Proceeding with pipeline.`);
 
     // --- COMPONENT 3: DEPENDENCY MAPPER ---
-    const localDependencies = await getRepositoryDependencies(token, hasSbom, workspacePath);
+    const localDependencies = await getRepositoryDependencies(token, workspacePath);
     if (localDependencies === null) {
       core.error('CRITICAL PIPELINE HALT: Dependency Mapper failed. Check that the GitHub Dependency Graph is enabled for this repository.');
       return;
