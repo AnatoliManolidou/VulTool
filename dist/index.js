@@ -30419,7 +30419,7 @@ async function analyzeCodeUsage(npmThreats, workspacePath) {
 
 /***/ }),
 
-/***/ 241:
+/***/ 645:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 "use strict";
@@ -30458,7 +30458,142 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.assessContextualRisk = assessContextualRisk;
+exports.getRepositoryDependencies = getRepositoryDependencies;
+const fs = __importStar(__nccwpck_require__(9896));
+const path = __importStar(__nccwpck_require__(6928));
+const core = __importStar(__nccwpck_require__(7484));
+const github = __importStar(__nccwpck_require__(3228));
+async function getRepositoryDependencies(token, hasSbom, workspacePath) {
+    const packageNames = new Set();
+    // STRATEGY A: Local SBOM Parsing
+    if (hasSbom) {
+        core.info('Component 3: Local SBOM detected. Parsing local file for dependency mapping...');
+        try {
+            const sbomFiles = ['sbom.json', 'cyclonedx.json', 'spdx.json', 'bom.json'];
+            let sbomData = null;
+            for (const file of sbomFiles) {
+                const fullPath = path.join(workspacePath, file);
+                if (fs.existsSync(fullPath)) {
+                    core.info(`Reading SBOM target: ${file}`);
+                    sbomData = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+                    break;
+                }
+            }
+            if (sbomData) {
+                if (sbomData.components && Array.isArray(sbomData.components)) {
+                    sbomData.components.forEach((comp) => {
+                        if (comp.name)
+                            packageNames.add(comp.name.toLowerCase());
+                    });
+                }
+                else if (sbomData.packages && Array.isArray(sbomData.packages)) {
+                    sbomData.packages.forEach((pkg) => {
+                        if (pkg.name)
+                            packageNames.add(pkg.name.toLowerCase());
+                    });
+                }
+                const depsArray = Array.from(packageNames);
+                core.info(`Mapped ${depsArray.length} unique dependencies directly from local SBOM.`);
+                return depsArray;
+            }
+        }
+        catch (error) {
+            if (error instanceof Error) {
+                core.warning(`Failed to parse local SBOM: ${error.message}. Falling back to GitHub API.`);
+            }
+        }
+    }
+    // STRATEGY B: Fallback to GitHub Dependency Graph API
+    const octokit = github.getOctokit(token);
+    const { owner, repo } = github.context.repo;
+    try {
+        core.info(`Component 3: Waking up Dependency Mapper API fallback for ${owner}/${repo}...`);
+        const query = `
+      query($owner: String!, $repo: String!) {
+        repository(owner: $owner, name: $repo) {
+          dependencyGraphManifests(first: 50) {
+            nodes {
+              filename
+              dependencies(first: 100) {
+                nodes {
+                  packageName
+                }
+              }
+            }
+          }
+        }
+      }
+    `;
+        const response = await octokit.graphql(query, {
+            owner,
+            repo,
+            headers: {
+                accept: 'application/vnd.github.hawkgirl-preview+json'
+            }
+        });
+        const manifests = response.repository?.dependencyGraphManifests?.nodes || [];
+        for (const manifest of manifests) {
+            if (manifest.dependencies && manifest.dependencies.nodes) {
+                for (const dep of manifest.dependencies.nodes) {
+                    packageNames.add(dep.packageName.toLowerCase());
+                }
+            }
+        }
+        const depsArray = Array.from(packageNames);
+        core.info(`Mapped ${depsArray.length} unique dependencies natively from GitHub API.`);
+        return depsArray;
+    }
+    catch (error) {
+        if (error instanceof Error) {
+            core.error(`Dependency Mapper API Error: ${error.message}`);
+        }
+        return null; //Return null to flag a critical fallback failure
+    }
+}
+
+
+/***/ }),
+
+/***/ 8127:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.classifyDeploymentContext = classifyDeploymentContext;
 const fs = __importStar(__nccwpck_require__(9896));
 const path = __importStar(__nccwpck_require__(6928));
 const core = __importStar(__nccwpck_require__(7484));
@@ -30693,8 +30828,8 @@ function extractPubDevDeps(workspacePath, devDeps) {
     }
     catch { /* skip */ }
 }
-function assessContextualRisk(threats, workspacePath, ecosystems) {
-    core.info('Component 5: Waking up Contextual Risk Solver...');
+function classifyDeploymentContext(threats, workspacePath, ecosystems) {
+    core.info('Component 5: Waking up Deployment Classifier...');
     const devDependencies = new Set();
     // Run the extractor for every detected ecosystem.
     // Each is individually guarded — one failure doesn't block the others.
@@ -30714,7 +30849,7 @@ function assessContextualRisk(threats, workspacePath, ecosystems) {
         extractNuGetDevDeps(workspacePath, devDependencies);
     if (ecosystems.includes('pub'))
         extractPubDevDeps(workspacePath, devDependencies);
-    // Go, Swift, Actions: no dev-dependency distinction — all treated as production
+    // Go, Swift, Erlang: handled below / no dev-dependency distinction — all treated as production
     core.info(`Identified ${devDependencies.size} dev-only packages across all ecosystems.`);
     const assessedThreats = threats.map(threat => {
         const isDev = devDependencies.has(threat.packageName?.toLowerCase());
@@ -30737,141 +30872,6 @@ function assessContextualRisk(threats, workspacePath, ecosystems) {
         core.info(`Top threat: ${assessedThreats[0].packageName} -> ${assessedThreats[0].contextualRisk}`);
     }
     return assessedThreats;
-}
-
-
-/***/ }),
-
-/***/ 645:
-/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
-
-"use strict";
-
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.getRepositoryDependencies = getRepositoryDependencies;
-const fs = __importStar(__nccwpck_require__(9896));
-const path = __importStar(__nccwpck_require__(6928));
-const core = __importStar(__nccwpck_require__(7484));
-const github = __importStar(__nccwpck_require__(3228));
-async function getRepositoryDependencies(token, hasSbom, workspacePath) {
-    const packageNames = new Set();
-    // STRATEGY A: Local SBOM Parsing
-    if (hasSbom) {
-        core.info('Component 3: Local SBOM detected. Parsing local file for dependency mapping...');
-        try {
-            const sbomFiles = ['sbom.json', 'cyclonedx.json', 'spdx.json', 'bom.json'];
-            let sbomData = null;
-            for (const file of sbomFiles) {
-                const fullPath = path.join(workspacePath, file);
-                if (fs.existsSync(fullPath)) {
-                    core.info(`Reading SBOM target: ${file}`);
-                    sbomData = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
-                    break;
-                }
-            }
-            if (sbomData) {
-                if (sbomData.components && Array.isArray(sbomData.components)) {
-                    sbomData.components.forEach((comp) => {
-                        if (comp.name)
-                            packageNames.add(comp.name.toLowerCase());
-                    });
-                }
-                else if (sbomData.packages && Array.isArray(sbomData.packages)) {
-                    sbomData.packages.forEach((pkg) => {
-                        if (pkg.name)
-                            packageNames.add(pkg.name.toLowerCase());
-                    });
-                }
-                const depsArray = Array.from(packageNames);
-                core.info(`Mapped ${depsArray.length} unique dependencies directly from local SBOM.`);
-                return depsArray;
-            }
-        }
-        catch (error) {
-            if (error instanceof Error) {
-                core.warning(`Failed to parse local SBOM: ${error.message}. Falling back to GitHub API.`);
-            }
-        }
-    }
-    // STRATEGY B: Fallback to GitHub Dependency Graph API
-    const octokit = github.getOctokit(token);
-    const { owner, repo } = github.context.repo;
-    try {
-        core.info(`Component 3: Waking up Dependency Mapper API fallback for ${owner}/${repo}...`);
-        const query = `
-      query($owner: String!, $repo: String!) {
-        repository(owner: $owner, name: $repo) {
-          dependencyGraphManifests(first: 50) {
-            nodes {
-              filename
-              dependencies(first: 100) {
-                nodes {
-                  packageName
-                }
-              }
-            }
-          }
-        }
-      }
-    `;
-        const response = await octokit.graphql(query, {
-            owner,
-            repo,
-            headers: {
-                accept: 'application/vnd.github.hawkgirl-preview+json'
-            }
-        });
-        const manifests = response.repository?.dependencyGraphManifests?.nodes || [];
-        for (const manifest of manifests) {
-            if (manifest.dependencies && manifest.dependencies.nodes) {
-                for (const dep of manifest.dependencies.nodes) {
-                    packageNames.add(dep.packageName.toLowerCase());
-                }
-            }
-        }
-        const depsArray = Array.from(packageNames);
-        core.info(`Mapped ${depsArray.length} unique dependencies natively from GitHub API.`);
-        return depsArray;
-    }
-    catch (error) {
-        if (error instanceof Error) {
-            core.error(`Dependency Mapper API Error: ${error.message}`);
-        }
-        return null; //Return null to flag a critical fallback failure
-    }
 }
 
 
@@ -31190,7 +31190,7 @@ const ecosystem_detector_1 = __nccwpck_require__(8663);
 const alert_fetcher_1 = __nccwpck_require__(884);
 const dependency_mapper_1 = __nccwpck_require__(645);
 const vulnerability_filter_1 = __nccwpck_require__(7213);
-const contextual_risk_solver_1 = __nccwpck_require__(241);
+const deployment_classifier_1 = __nccwpck_require__(8127);
 const remediation_queue_1 = __nccwpck_require__(9331);
 const ast_analyzer_1 = __nccwpck_require__(9999);
 async function main() {
@@ -31228,7 +31228,7 @@ async function main() {
             return;
         }
         // --- COMPONENT 5: CONTEXTUAL RISK SOLVER ---
-        const contextualizedThreats = (0, contextual_risk_solver_1.assessContextualRisk)(finalThreats, workspacePath, detectedEcosystems);
+        const contextualizedThreats = (0, deployment_classifier_1.classifyDeploymentContext)(finalThreats, workspacePath, detectedEcosystems);
         // --- COMPONENT 6: REMEDIATION QUEUE ---
         const sortedThreats = (0, remediation_queue_1.generateRemediationQueue)(contextualizedThreats);
         // --- COMPONENT 7: AST ANALYZER (npm threats only) ---

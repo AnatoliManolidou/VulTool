@@ -3,7 +3,7 @@ import { detectEcosystems } from './components/ecosystem-detector';
 import { fetchRecentAdvisories } from './components/alert-fetcher';
 import { getRepositoryDependencies } from './components/dependency-mapper';
 import { filterAdvisories } from './components/vulnerability-filter';
-import { assessContextualRisk } from './components/contextual-risk-solver';
+import { classifyDeploymentContext } from './components/deployment-classifier';
 import { generateRemediationQueue } from './components/remediation-queue';
 import { analyzeCodeUsage } from './components/ast-analyzer';
 
@@ -50,7 +50,7 @@ async function main() {
     }
 
     // --- COMPONENT 5: CONTEXTUAL RISK SOLVER ---
-    const contextualizedThreats = assessContextualRisk(finalThreats, workspacePath, detectedEcosystems);
+    const contextualizedThreats = classifyDeploymentContext(finalThreats, workspacePath, detectedEcosystems);
 
     // --- COMPONENT 6: REMEDIATION QUEUE ---
     const sortedThreats = generateRemediationQueue(contextualizedThreats);

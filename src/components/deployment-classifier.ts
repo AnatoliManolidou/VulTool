@@ -208,13 +208,31 @@ function extractPubDevDeps(workspacePath: string, devDeps: Set<string>): void {
   } catch { /* skip */ }
 }
 
-export function assessContextualRisk(threats: any[], workspacePath: string, ecosystems: string[]): any[] {
-  core.info('Component 5: Waking up Contextual Risk Solver...');
+function extractErlangDevDeps(workspacePath: string, devDeps: Set<string>): void {
+  // mix.exs uses {: atom syntax to declare deps.
+  // Dev/test deps are marked with `only: :test`, `only: [:dev]`, `only: [:dev, :test]` etc.
+  const mixPath = path.join(workspacePath, 'mix.exs');
+  if (!fs.existsSync(mixPath)) return;
+  try {
+    const lines = fs.readFileSync(mixPath, 'utf8').split('\n');
+    for (const line of lines) {
+      if (!line.includes('only:')) continue;
+      const onlyMatch = line.match(/only:\s*(?:\[([^\]]+)\]|(:[\w]+))/);
+      if (!onlyMatch) continue;
+      const onlyValue = (onlyMatch[1] ?? onlyMatch[2] ?? '').toLowerCase();
+      if (!onlyValue.includes(':dev') && !onlyValue.includes(':test')) continue;
+      const nameMatch = line.match(/\{:(\w+)/);
+      if (nameMatch) devDeps.add(nameMatch[1].toLowerCase());
+    }
+  } catch { /* skip */ }
+}
+
+export function classifyDeploymentContext(threats: any[], workspacePath: string, ecosystems: string[]): any[] {
+  core.info('Component 5: Waking up Deployment Classifier...');
 
   const devDependencies = new Set<string>();
 
-  // Run the extractor for every detected ecosystem.
-  // Each is individually guarded — one failure doesn't block the others.
+  // Each extractor is individually guarded — one failure doesn't block the others.
   if (ecosystems.includes('npm'))      extractNpmDevDeps(workspacePath, devDependencies);
   if (ecosystems.includes('pip'))      extractPipDevDeps(workspacePath, devDependencies);
   if (ecosystems.includes('rubygems')) extractRubyDevDeps(workspacePath, devDependencies);
@@ -223,7 +241,8 @@ export function assessContextualRisk(threats: any[], workspacePath: string, ecos
   if (ecosystems.includes('composer')) extractComposerDevDeps(workspacePath, devDependencies);
   if (ecosystems.includes('nuget'))    extractNuGetDevDeps(workspacePath, devDependencies);
   if (ecosystems.includes('pub'))      extractPubDevDeps(workspacePath, devDependencies);
-  // Go, Swift, Actions: no dev-dependency distinction — all treated as production
+  if (ecosystems.includes('erlang'))   extractErlangDevDeps(workspacePath, devDependencies);
+  // Go and Swift have no dev-dependency distinction — all deps treated as production
 
   core.info(`Identified ${devDependencies.size} dev-only packages across all ecosystems.`);
 
