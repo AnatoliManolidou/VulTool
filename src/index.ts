@@ -1,7 +1,6 @@
 import * as core from '@actions/core';
 import * as cache from '@actions/cache';
 import * as fs from 'fs';
-import * as path from 'path';
 import { detectEcosystems } from './components/ecosystem-detector';
 import { fetchRecentAdvisories } from './components/alert-fetcher';
 import { getRepositoryDependencies } from './components/dependency-mapper';
@@ -84,15 +83,15 @@ async function main() {
 
     // --- COMPONENT 3: DEPENDENCY MAPPER ---
     core.info('');
-    const localDependencies = await getRepositoryDependencies(token);
-    if (localDependencies === null) {
+    const installedPackages = await getRepositoryDependencies(token);
+    if (installedPackages === null) {
       core.error('CRITICAL PIPELINE HALT: Dependency Mapper failed. Check that the GitHub Dependency Graph is enabled for this repository.');
       return;
     }
 
     // --- COMPONENT 4: VULNERABILITY FILTER ---
     core.info('');
-    const finalThreats = filterAdvisories(rawAdvisories, threshold, localDependencies, workspacePath);
+    const finalThreats = filterAdvisories(rawAdvisories, threshold, installedPackages);
     if (finalThreats.length === 0) {
       core.info('No matching vulnerabilities found in this repository.');
       await saveSeenGhsaIds(currentIds);

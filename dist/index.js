@@ -41579,65 +41579,93 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.getRepositoryDependencies = getRepositoryDependencies;
 const core = __importStar(__nccwpck_require__(37484));
 const github = __importStar(__nccwpck_require__(93228));
+// Maps PURL ecosystem type identifiers to our internal ecosystem names.
+const PURL_TYPE_MAP = {
+    npm: 'npm',
+    pypi: 'pip',
+    gem: 'rubygems',
+    cargo: 'crates',
+    golang: 'go',
+    maven: 'maven',
+    composer: 'composer',
+    swift: 'swift',
+    pub: 'pub',
+    hex: 'erlang',
+    nuget: 'nuget',
+};
 /**
- * Returns a lowercased list of every package in the repository's dependency
- * graph, sourced exclusively from the GitHub Dependency Graph API.
+ * Parses a Package URL (PURL) and returns the normalized package name and
+ * installed version.
  *
- * Manifests are fully paginated — there is no cap on how many manifest files
- * are processed. Each manifest returns up to 100 dependencies per page.
- * The GitHub preview API does not expose node IDs on manifest objects, so
- * per-manifest dep pagination beyond 100 is not possible without a separate
- * API (e.g. the SBOM export endpoint). In practice this limit is only hit by
- * very large lock files in monorepos; for all standard repos the full dep
- * list is returned.
+ * PURL format: pkg:type/[namespace/]name@version
  *
+ * Examples:
+ *   pkg:npm/lodash@4.17.21
+ *     → { name: "lodash", version: "4.17.21" }
+ *   pkg:npm/%40merill%2Flokka@2.0.0
+ *     → { name: "@merill/lokka", version: "2.0.0" }
+ *   pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.14.0
+ *     → { name: "com.fasterxml.jackson.core:jackson-databind", version: "2.14.0" }
+ */
+function parsePurl(purl) {
+    if (!purl.startsWith('pkg:'))
+        return null;
+    const firstSlash = purl.indexOf('/');
+    const lastAt = purl.lastIndexOf('@');
+    if (firstSlash === -1 || lastAt === -1 || lastAt <= firstSlash)
+        return null;
+    const purlType = purl.slice(4, firstSlash).toLowerCase();
+    const rawNamePath = purl.slice(firstSlash + 1, lastAt);
+    const version = purl.slice(lastAt + 1);
+    if (!version || !PURL_TYPE_MAP[purlType])
+        return null;
+    let name = decodeURIComponent(rawNamePath);
+    // Maven advisories use "groupId:artifactId"; PURLs use "groupId/artifactId".
+    if (purlType === 'maven' && name.includes('/')) {
+        name = name.replace('/', ':');
+    }
+    return { name: name.toLowerCase(), version };
+}
+/**
+ * Exports the GitHub-generated SBOM for the repository and returns a map of
+ * lowercased package name → installed version.
+ *
+ * GitHub generates the SBOM on demand from the same dependency graph data as
+ * the GraphQL preview API, but returns every installed package across all
+ * manifests with no per-manifest truncation. This replaces the previous
+ * GraphQL approach which was hard-capped at 100 deps per manifest and had no
+ * pagination path due to the preview API omitting node IDs on manifest objects.
+ *
+ * Requires the GitHub Dependency Graph to be enabled for the repository.
  * Returns null on hard failure so the pipeline halts rather than producing
  * false negatives.
  */
 async function getRepositoryDependencies(token) {
-    const packageNames = new Set();
     const octokit = github.getOctokit(token);
     const { owner, repo } = github.context.repo;
-    const HEADERS = { accept: 'application/vnd.github.hawkgirl-preview+json' };
     try {
         core.info(`Component 3: Waking up Dependency Mapper for ${owner}/${repo}...`);
-        let manifestCursor = null;
-        let hasMoreManifests = true;
-        let manifestCount = 0;
-        while (hasMoreManifests) {
-            const res = await octokit.graphql(`query($owner: String!, $repo: String!, $after: String) {
-          repository(owner: $owner, name: $repo) {
-            dependencyGraphManifests(first: 50, after: $after) {
-              pageInfo { hasNextPage endCursor }
-              nodes {
-                filename
-                dependencies(first: 100) {
-                  pageInfo { hasNextPage }
-                  nodes { packageName }
-                }
-              }
-            }
-          }
-        }`, { owner, repo, after: manifestCursor, headers: HEADERS });
-            const page = res.repository.dependencyGraphManifests;
-            for (const manifest of page.nodes) {
-                manifestCount++;
-                const deps = manifest.dependencies;
-                for (const dep of deps?.nodes ?? []) {
-                    if (dep.packageName)
-                        packageNames.add(dep.packageName.toLowerCase());
-                }
-                if (deps?.pageInfo?.hasNextPage) {
-                    core.warning(`  ${manifest.filename} has more than 100 dependencies — additional entries truncated. ` +
-                        `Consider generating a repo SBOM for complete coverage on large monorepos.`);
-                }
-            }
-            hasMoreManifests = page.pageInfo.hasNextPage;
-            manifestCursor = page.pageInfo.endCursor;
+        core.info('  Source: GitHub Dependency Graph SBOM export');
+        const response = await octokit.request('GET /repos/{owner}/{repo}/dependency-graph/sbom', {
+            owner,
+            repo,
+            headers: { 'X-GitHub-Api-Version': '2022-11-28' },
+        });
+        const packages = response.data.sbom?.packages ?? [];
+        const installedPackages = new Map();
+        for (const pkg of packages) {
+            // Each real dependency has at least one PURL in its externalRefs.
+            // The root entry (the repository itself) has no PURL and is skipped.
+            const purl = pkg.externalRefs?.find((ref) => ref.referenceType === 'purl')?.referenceLocator;
+            if (!purl)
+                continue;
+            const parsed = parsePurl(purl);
+            if (!parsed)
+                continue;
+            installedPackages.set(parsed.name, parsed.version);
         }
-        const depsArray = Array.from(packageNames);
-        core.info(`Mapped ${depsArray.length} unique dependencies across ${manifestCount} manifest(s).`);
-        return depsArray;
+        core.info(`  Mapped ${installedPackages.size} installed package(s) across all ecosystems.`);
+        return installedPackages;
     }
     catch (error) {
         if (error instanceof Error) {
@@ -42110,90 +42138,6 @@ async function detectEcosystems(workspacePath) {
 
 /***/ }),
 
-/***/ 76375:
-/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
-
-"use strict";
-
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.readNpmInstalledVersions = readNpmInstalledVersions;
-const fs = __importStar(__nccwpck_require__(79896));
-const path = __importStar(__nccwpck_require__(16928));
-const core = __importStar(__nccwpck_require__(37484));
-/**
- * Reads package-lock.json and returns a map of lowercased package name → resolved version.
- * Supports lockfile v1 (npm 6) and v2/v3 (npm 7+).
- * Returns an empty map if no lockfile is found or parsing fails.
- */
-function readNpmInstalledVersions(workspacePath) {
-    const versions = new Map();
-    const lockfilePath = path.join(workspacePath, 'package-lock.json');
-    if (!fs.existsSync(lockfilePath)) {
-        core.info('  No package-lock.json found — version range check skipped for npm.');
-        return versions;
-    }
-    try {
-        const lockfile = JSON.parse(fs.readFileSync(lockfilePath, 'utf8'));
-        if (lockfile.packages) {
-            // v2 / v3: keys are "node_modules/pkg" or "node_modules/@scope/pkg"
-            for (const [key, pkg] of Object.entries(lockfile.packages)) {
-                if (!key || !pkg?.version)
-                    continue;
-                const name = key.replace(/^node_modules\//, '');
-                versions.set(name.toLowerCase(), pkg.version);
-            }
-        }
-        else if (lockfile.dependencies) {
-            // v1: keys are plain package names
-            for (const [name, pkg] of Object.entries(lockfile.dependencies)) {
-                if (pkg?.version)
-                    versions.set(name.toLowerCase(), pkg.version);
-            }
-        }
-        core.info(`  Lockfile parsed: ${versions.size} resolved npm versions loaded.`);
-    }
-    catch (err) {
-        core.warning(`  Failed to parse package-lock.json: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    return versions;
-}
-
-
-/***/ }),
-
 /***/ 89331:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -42307,17 +42251,15 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.filterAdvisories = filterAdvisories;
 const core = __importStar(__nccwpck_require__(37484));
 const semver_1 = __nccwpck_require__(62088);
-const lockfile_reader_1 = __nccwpck_require__(76375);
-function filterAdvisories(advisories, thresholdInput, localDependencies, workspacePath) {
+function filterAdvisories(advisories, thresholdInput, installedPackages) {
     core.info(`Component 4: Waking up Vulnerability Filter (Threshold: ${thresholdInput})...`);
+    core.info(`  Checking ${advisories.length} advisorie(s) against ${installedPackages.size} installed package(s).`);
     const severityWeights = {
         'LOW': 1, 'MODERATE': 2, 'HIGH': 3, 'CRITICAL': 4,
     };
     const targetWeight = severityWeights[thresholdInput.toUpperCase()] ?? 0;
-    // Load resolved npm versions from the lockfile once, reused for all npm advisories.
-    const npmVersions = (0, lockfile_reader_1.readNpmInstalledVersions)(workspacePath);
-    if (localDependencies.length === 0) {
-        core.warning('Dependency list is empty — all above-threshold advisories will be reported. ' +
+    if (installedPackages.size === 0) {
+        core.warning('Installed package list is empty — all above-threshold advisories will be reported. ' +
             'Verify the GitHub Dependency Graph is enabled for this repository.');
     }
     const filtered = advisories.filter(adv => {
@@ -42327,25 +42269,21 @@ function filterAdvisories(advisories, thresholdInput, localDependencies, workspa
         if (advWeight < targetWeight)
             return false;
         // --- Gate 2: package present in this repo ---
-        // For npm: the GitHub Dependency Graph API truncates large lock files, so
-        // transitive deps may be missing from localDependencies. The lockfile (npmVersions)
-        // is the complete ground truth — if the package is installed there, it passes.
-        // For all other ecosystems: rely solely on the dependency graph.
-        const inDepGraph = localDependencies.includes(packageName);
-        const inLockfile = adv.ecosystem === 'npm' && npmVersions.has(packageName);
-        if (localDependencies.length > 0 && !inDepGraph && !inLockfile)
+        // The SBOM covers all ecosystems completely, so a single Map lookup suffices.
+        if (installedPackages.size > 0 && !installedPackages.has(packageName))
             return false;
         // --- Gate 3: installed version is within the vulnerable range (npm only) ---
-        // Skipped when the lockfile has no entry for the package (safe: keeps the advisory).
+        // semver parsing is only reliable for npm/cargo; other ecosystems use
+        // different versioning schemes. Skipped when no version is available
+        // (safe: keeps the advisory).
         if (adv.ecosystem === 'npm' && adv.vulnerableVersionRange) {
-            const installedVersion = npmVersions.get(packageName);
+            const installedVersion = installedPackages.get(packageName);
             if (installedVersion) {
                 // GitHub Advisory uses commas as range separators; semver expects spaces.
                 const range = adv.vulnerableVersionRange.replace(/,\s*/g, ' ');
                 if ((0, semver_1.validRange)(range)) {
-                    const affected = (0, semver_1.satisfies)(installedVersion, range);
-                    if (!affected) {
-                        core.info(`  [skip] ${adv.packageName}@${installedVersion} not in vulnerable range "${adv.vulnerableVersionRange}"`);
+                    if (!(0, semver_1.satisfies)(installedVersion, range)) {
+                        core.info(`  [skip] ${adv.packageName}@${installedVersion} is not in vulnerable range "${adv.vulnerableVersionRange}"`);
                         return false;
                     }
                 }
@@ -42353,8 +42291,7 @@ function filterAdvisories(advisories, thresholdInput, localDependencies, workspa
         }
         return true;
     });
-    core.info(`Filtered out ${advisories.length - filtered.length} advisories (below threshold, not in deps, or version not affected).`);
-    core.info(`${filtered.length} confirmed threat(s) apply to this codebase.`);
+    core.info(`  Result: ${advisories.length - filtered.length} discarded, ${filtered.length} confirmed threat(s).`);
     return filtered;
 }
 
@@ -42475,14 +42412,14 @@ async function main() {
         core.info(`  ${newCount} new advisory ID(s) since last scan — proceeding with full pipeline.`);
         // --- COMPONENT 3: DEPENDENCY MAPPER ---
         core.info('');
-        const localDependencies = await (0, dependency_mapper_1.getRepositoryDependencies)(token);
-        if (localDependencies === null) {
+        const installedPackages = await (0, dependency_mapper_1.getRepositoryDependencies)(token);
+        if (installedPackages === null) {
             core.error('CRITICAL PIPELINE HALT: Dependency Mapper failed. Check that the GitHub Dependency Graph is enabled for this repository.');
             return;
         }
         // --- COMPONENT 4: VULNERABILITY FILTER ---
         core.info('');
-        const finalThreats = (0, vulnerability_filter_1.filterAdvisories)(rawAdvisories, threshold, localDependencies, workspacePath);
+        const finalThreats = (0, vulnerability_filter_1.filterAdvisories)(rawAdvisories, threshold, installedPackages);
         if (finalThreats.length === 0) {
             core.info('No matching vulnerabilities found in this repository.');
             await saveSeenGhsaIds(currentIds);
