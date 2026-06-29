@@ -7,13 +7,9 @@ inputs:
     description: 'GitHub API token for pulling dependency graphs and fetching advisories'
     required: true
   severity_threshold:
-    description: 'Minimum contextual severity to process (CRITICAL, HIGH, MODERATE, LOW)'
+    description: 'Minimum severity to process (CRITICAL, HIGH, MODERATE, LOW)'
     required: false
     default: 'HIGH'
-  dry_run:
-    description: 'If true, scans and patches locally but does not create a PR'
-    required: false
-    default: 'false'
 
 runs:
   using: 'node20'

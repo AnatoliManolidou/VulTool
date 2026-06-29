@@ -41516,7 +41516,10 @@ async function analyzeCodeUsage(npmThreats, workspacePath) {
                 }
             }
         }
-        core.info(`  EIF call sites total: ${eifCallSites.length} | Caller slices: ${callerSlices.length}`);
+        const funcNames = callerSlices.length > 0
+            ? [...new Set(callerSlices.map(s => s.functionName))].join(', ')
+            : 'none';
+        core.info(`  EIF call sites: ${eifCallSites.length} | Caller functions: ${funcNames}`);
         results.push({
             threatGhsaId: threat.ghsaId,
             packageName: threat.packageName,
@@ -41978,6 +41981,7 @@ function classifyDeploymentContext(threats, workspacePath, ecosystems) {
         // CRITICAL prod = 45, CRITICAL dev = 40, HIGH prod = 35, HIGH dev = 30, ...
         const severityWeight = SEVERITY_WEIGHTS[threat.severity?.toUpperCase()] || 0;
         const priorityScore = severityWeight * 10 + (isDev ? 0 : 5);
+        core.info(`  ${threat.packageName} [${threat.severity}] → ${contextTag} (score: ${priorityScore})`);
         return {
             ...threat,
             contextualRisk: contextTag,
@@ -41985,10 +41989,7 @@ function classifyDeploymentContext(threats, workspacePath, ecosystems) {
             priorityScore,
         };
     });
-    core.info(`Assessed context for ${assessedThreats.length} verified threats.`);
-    if (assessedThreats.length > 0) {
-        core.info(`Top threat: ${assessedThreats[0].packageName} -> ${assessedThreats[0].contextualRisk}`);
-    }
+    core.info(`Classified ${assessedThreats.length} threat(s).`);
     return assessedThreats;
 }
 
@@ -42240,21 +42241,22 @@ function generateRemediationQueue(assessedThreats) {
         core.info('Queue empty. No remediation required.');
         return [];
     }
-    // Sort descending by priorityScore (set by contextual-risk-solver).
+    // Sort descending by priorityScore (set by Deployment Classifier).
     // Severity is the primary key; prod/dev is the tiebreaker within the same severity.
     const sortedThreats = [...assessedThreats].sort((a, b) => b.priorityScore - a.priorityScore);
     core.info('=========================================');
     core.info('         FINAL REMEDIATION QUEUE         ');
     core.info('=========================================');
     sortedThreats.forEach((threat, index) => {
-        core.info(`[Priority ${index + 1}] Package: ${threat.packageName}`);
+        core.info(`[Priority ${index + 1}] ${threat.packageName}`);
         core.info(`    Identifier:    ${threat.ghsaId}`);
         core.info(`    Ecosystem:     ${threat.ecosystem}`);
-        core.info(`    Base Severity: ${threat.severity}`);
+        core.info(`    Severity:      ${threat.severity}`);
         core.info(`    Context:       ${threat.contextualRisk}`);
-        core.info(`    Priority Score:${threat.priorityScore}`);
-        core.info(`    Versions:      ${threat.vulnerableVersionRange}`);
-        core.info(`    Details:       ${threat.summary}`);
+        core.info(`    Priority Score: ${threat.priorityScore}`);
+        core.info(`    Affected:      ${threat.vulnerableVersionRange}`);
+        core.info(`    Patched In:    ${threat.firstPatchedVersion ?? 'no patch available'}`);
+        core.info(`    Summary:       ${threat.summary}`);
         core.info('-----------------------------------------');
     });
     return sortedThreats;
@@ -42314,6 +42316,10 @@ function filterAdvisories(advisories, thresholdInput, localDependencies, workspa
     const targetWeight = severityWeights[thresholdInput.toUpperCase()] ?? 0;
     // Load resolved npm versions from the lockfile once, reused for all npm advisories.
     const npmVersions = (0, lockfile_reader_1.readNpmInstalledVersions)(workspacePath);
+    if (localDependencies.length === 0) {
+        core.warning('Dependency list is empty — all above-threshold advisories will be reported. ' +
+            'Verify the GitHub Dependency Graph is enabled for this repository.');
+    }
     const filtered = advisories.filter(adv => {
         const packageName = adv.packageName?.toLowerCase() ?? '';
         // --- Gate 1: severity threshold ---
@@ -42398,8 +42404,8 @@ const vulnerability_filter_1 = __nccwpck_require__(7213);
 const deployment_classifier_1 = __nccwpck_require__(78127);
 const remediation_queue_1 = __nccwpck_require__(89331);
 const ast_analyzer_1 = __nccwpck_require__(19999);
-// Advisory state is cached between runs to skip the pipeline when nothing new
-// has been published since the last scan.
+// Advisory state is cached between runs — skip the pipeline when the global
+// advisory feed has not changed since the last hourly scan.
 const STATE_FILE = '/tmp/vultool-advisory-state.json';
 const CACHE_KEY = `vultool-advisory-state-${process.env.GITHUB_REPOSITORY ?? 'local'}`;
 async function loadLastSeenGhsaIds() {
@@ -42424,66 +42430,83 @@ async function saveSeenGhsaIds(ids) {
 }
 async function main() {
     try {
-        core.info('CTI Vulnerability Scanner Waking Up...');
         const token = core.getInput('github_token', { required: true });
         const threshold = core.getInput('severity_threshold');
         core.setSecret(token);
-        core.info(`Target Threshold: ${threshold}\n`);
+        const repoName = process.env.GITHUB_REPOSITORY ?? 'unknown/unknown';
         const workspacePath = process.env.GITHUB_WORKSPACE || process.cwd();
+        core.info('=========================================');
+        core.info('      CTI VULNERABILITY SCANNER          ');
+        core.info('=========================================');
+        core.info(`  Repository : ${repoName}`);
+        core.info(`  Threshold  : ${threshold}`);
+        core.info('');
         // --- COMPONENT 1: ECOSYSTEM DETECTOR ---
         const { ecosystems: detectedEcosystems } = await (0, ecosystem_detector_1.detectEcosystems)(workspacePath);
         if (detectedEcosystems.length === 0) {
-            core.info('No ecosystems to analyze. Exiting successfully.');
+            core.info('No ecosystems detected. Exiting successfully.');
             return;
         }
         // --- COMPONENT 2: ALERT FETCHER ---
-        // Fetches the 10 most recently updated advisories per detected ecosystem.
+        core.info('');
         const rawAdvisories = await (0, alert_fetcher_1.fetchRecentAdvisories)(token, detectedEcosystems);
         if (rawAdvisories.length === 0) {
             core.info('No recent advisories found. Exiting successfully.');
             return;
         }
         // --- ADVISORY SKIP CHECK ---
-        // Compare the fetched GHSA IDs against what we saw last run.
-        // If the set is identical, no new advisories have been published — skip the rest.
+        // If the GHSA ID set is identical to the last run, no new advisories have
+        // been published — skip the heavy pipeline and wait for the next hourly scan.
         const lastSeenIds = await loadLastSeenGhsaIds();
         const currentIds = new Set(rawAdvisories.map((a) => a.ghsaId));
         const hasNewIds = lastSeenIds.size === 0 || [...currentIds].some(id => !lastSeenIds.has(id));
         if (!hasNewIds) {
-            core.info('No new advisories since last scan. Pipeline skipped — next check in 1 hour.');
+            core.info('');
+            core.info('No new advisories since last scan — pipeline skipped. Next check in ~1 hour.');
             return;
         }
         const newCount = [...currentIds].filter(id => !lastSeenIds.has(id)).length;
-        core.info(`${newCount} new advisory ID(s) detected since last scan. Proceeding with pipeline.`);
+        core.info(`  ${newCount} new advisory ID(s) since last scan — proceeding with full pipeline.`);
         // --- COMPONENT 3: DEPENDENCY MAPPER ---
+        core.info('');
         const localDependencies = await (0, dependency_mapper_1.getRepositoryDependencies)(token);
         if (localDependencies === null) {
             core.error('CRITICAL PIPELINE HALT: Dependency Mapper failed. Check that the GitHub Dependency Graph is enabled for this repository.');
             return;
         }
         // --- COMPONENT 4: VULNERABILITY FILTER ---
+        core.info('');
         const finalThreats = (0, vulnerability_filter_1.filterAdvisories)(rawAdvisories, threshold, localDependencies, workspacePath);
         if (finalThreats.length === 0) {
-            core.info('No matching vulnerabilities found in your dependencies.');
+            core.info('No matching vulnerabilities found in this repository.');
             await saveSeenGhsaIds(currentIds);
             return;
         }
         // --- COMPONENT 5: DEPLOYMENT CLASSIFIER ---
+        core.info('');
         const contextualizedThreats = (0, deployment_classifier_1.classifyDeploymentContext)(finalThreats, workspacePath, detectedEcosystems);
         // --- COMPONENT 6: REMEDIATION QUEUE ---
+        core.info('');
         const sortedThreats = (0, remediation_queue_1.generateRemediationQueue)(contextualizedThreats);
         // --- COMPONENT 7: AST ANALYZER (npm threats only) ---
+        core.info('');
         const npmThreats = sortedThreats.filter((t) => t.ecosystem === 'npm');
+        let codeSlices = [];
         if (npmThreats.length > 0) {
-            core.info(`${npmThreats.length} npm threat(s) routed to deep AST analysis.`);
-            await (0, ast_analyzer_1.analyzeCodeUsage)(npmThreats, workspacePath);
+            codeSlices = await (0, ast_analyzer_1.analyzeCodeUsage)(npmThreats, workspacePath);
         }
         else {
-            core.info('No npm threats in queue. Skipping AST analysis.');
+            core.info('Component 7: No npm threats in queue — AST analysis skipped.');
         }
-        // Save the current advisory set so the next hourly run can compare against it.
+        // Persist the current advisory set so the next hourly run can compare against it.
         await saveSeenGhsaIds(currentIds);
-        core.info('Pipeline finished successfully.');
+        core.info('');
+        core.info('=========================================');
+        core.info('           PIPELINE COMPLETE             ');
+        core.info('=========================================');
+        core.info(`  Threats confirmed : ${sortedThreats.length}`);
+        core.info(`  Active code usage : ${codeSlices.length} threat(s) with confirmed call sites`);
+        core.info('');
     }
     catch (error) {
         if (error instanceof Error) {

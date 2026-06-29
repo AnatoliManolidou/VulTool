@@ -8,7 +8,7 @@ export function generateRemediationQueue(assessedThreats: any[]): any[] {
     return [];
   }
 
-  // Sort descending by priorityScore (set by contextual-risk-solver).
+  // Sort descending by priorityScore (set by Deployment Classifier).
   // Severity is the primary key; prod/dev is the tiebreaker within the same severity.
   const sortedThreats = [...assessedThreats].sort((a, b) => b.priorityScore - a.priorityScore);
 
@@ -17,14 +17,15 @@ export function generateRemediationQueue(assessedThreats: any[]): any[] {
   core.info('=========================================');
 
   sortedThreats.forEach((threat, index) => {
-    core.info(`[Priority ${index + 1}] Package: ${threat.packageName}`);
+    core.info(`[Priority ${index + 1}] ${threat.packageName}`);
     core.info(`    Identifier:    ${threat.ghsaId}`);
     core.info(`    Ecosystem:     ${threat.ecosystem}`);
-    core.info(`    Base Severity: ${threat.severity}`);
+    core.info(`    Severity:      ${threat.severity}`);
     core.info(`    Context:       ${threat.contextualRisk}`);
-    core.info(`    Priority Score:${threat.priorityScore}`);
-    core.info(`    Versions:      ${threat.vulnerableVersionRange}`);
-    core.info(`    Details:       ${threat.summary}`);
+    core.info(`    Priority Score: ${threat.priorityScore}`);
+    core.info(`    Affected:      ${threat.vulnerableVersionRange}`);
+    core.info(`    Patched In:    ${threat.firstPatchedVersion ?? 'no patch available'}`);
+    core.info(`    Summary:       ${threat.summary}`);
     core.info('-----------------------------------------');
   });
 

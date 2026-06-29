@@ -257,6 +257,8 @@ export function classifyDeploymentContext(threats: any[], workspacePath: string,
     const severityWeight = SEVERITY_WEIGHTS[threat.severity?.toUpperCase()] || 0;
     const priorityScore  = severityWeight * 10 + (isDev ? 0 : 5);
 
+    core.info(`  ${threat.packageName} [${threat.severity}] → ${contextTag} (score: ${priorityScore})`);
+
     return {
       ...threat,
       contextualRisk: contextTag,
@@ -265,11 +267,7 @@ export function classifyDeploymentContext(threats: any[], workspacePath: string,
     };
   });
 
-  core.info(`Assessed context for ${assessedThreats.length} verified threats.`);
-
-  if (assessedThreats.length > 0) {
-    core.info(`Top threat: ${assessedThreats[0].packageName} -> ${assessedThreats[0].contextualRisk}`);
-  }
+  core.info(`Classified ${assessedThreats.length} threat(s).`);
 
   return assessedThreats;
 }

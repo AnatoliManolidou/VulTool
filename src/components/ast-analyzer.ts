@@ -357,7 +357,10 @@ export async function analyzeCodeUsage(
       }
     }
 
-    core.info(`  EIF call sites total: ${eifCallSites.length} | Caller slices: ${callerSlices.length}`);
+    const funcNames = callerSlices.length > 0
+      ? [...new Set(callerSlices.map(s => s.functionName))].join(', ')
+      : 'none';
+    core.info(`  EIF call sites: ${eifCallSites.length} | Caller functions: ${funcNames}`);
 
     results.push({
       threatGhsaId:  threat.ghsaId,
