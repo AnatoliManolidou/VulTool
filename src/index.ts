@@ -78,7 +78,7 @@ async function main() {
     core.info(`${newCount} new advisory ID(s) detected since last scan. Proceeding with pipeline.`);
 
     // --- COMPONENT 3: DEPENDENCY MAPPER ---
-    const localDependencies = await getRepositoryDependencies(token, workspacePath);
+    const localDependencies = await getRepositoryDependencies(token);
     if (localDependencies === null) {
       core.error('CRITICAL PIPELINE HALT: Dependency Mapper failed. Check that the GitHub Dependency Graph is enabled for this repository.');
       return;

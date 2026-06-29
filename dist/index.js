@@ -41580,22 +41580,31 @@ const github = __importStar(__nccwpck_require__(93228));
  * Returns a lowercased list of every package name in the repository's
  * dependency graph, sourced exclusively from the GitHub Dependency Graph API.
  *
+ * Both manifests and per-manifest dependencies are fully paginated — there is
+ * no cap on the number of dependencies returned.
+ *
  * Returns null on hard failure (API down, Dependency Graph disabled) so the
  * pipeline can halt rather than producing false negatives.
  */
-async function getRepositoryDependencies(token, workspacePath) {
+async function getRepositoryDependencies(token) {
     const packageNames = new Set();
     const octokit = github.getOctokit(token);
     const { owner, repo } = github.context.repo;
     try {
         core.info(`Component 3: Waking up Dependency Mapper for ${owner}/${repo}...`);
-        const query = `
-      query($owner: String!, $repo: String!) {
+        // --- Pass 1: fetch all manifests (paginated) + first 100 deps per manifest ---
+        // We also collect the manifest node ID and dep cursor for any manifest that
+        // has more than 100 deps, so we can page through the rest in Pass 2.
+        const MANIFEST_QUERY = `
+      query($owner: String!, $repo: String!, $after: String) {
         repository(owner: $owner, name: $repo) {
-          dependencyGraphManifests(first: 50) {
+          dependencyGraphManifests(first: 50, after: $after) {
+            pageInfo { hasNextPage endCursor }
             nodes {
+              id
               filename
               dependencies(first: 100) {
+                pageInfo { hasNextPage endCursor }
                 nodes { packageName }
               }
             }
@@ -41603,16 +41612,58 @@ async function getRepositoryDependencies(token, workspacePath) {
         }
       }
     `;
-        const response = await octokit.graphql(query, {
-            owner,
-            repo,
-            headers: { accept: 'application/vnd.github.hawkgirl-preview+json' },
-        });
-        const manifests = response.repository?.dependencyGraphManifests?.nodes ?? [];
-        for (const manifest of manifests) {
-            for (const dep of manifest.dependencies?.nodes ?? []) {
-                if (dep.packageName)
-                    packageNames.add(dep.packageName.toLowerCase());
+        // manifests that need further dep pagination: { id, depCursor }
+        const overflow = [];
+        let manifestCursor = null;
+        let hasMoreManifests = true;
+        while (hasMoreManifests) {
+            const res = await octokit.graphql(MANIFEST_QUERY, {
+                owner, repo,
+                after: manifestCursor,
+                headers: { accept: 'application/vnd.github.hawkgirl-preview+json' },
+            });
+            const page = res.repository.dependencyGraphManifests;
+            for (const manifest of page.nodes) {
+                for (const dep of manifest.dependencies?.nodes ?? []) {
+                    if (dep.packageName)
+                        packageNames.add(dep.packageName.toLowerCase());
+                }
+                if (manifest.dependencies?.pageInfo?.hasNextPage) {
+                    overflow.push({
+                        id: manifest.id,
+                        depCursor: manifest.dependencies.pageInfo.endCursor,
+                    });
+                }
+            }
+            hasMoreManifests = page.pageInfo.hasNextPage;
+            manifestCursor = page.pageInfo.endCursor;
+        }
+        // --- Pass 2: page through remaining deps for any oversized manifests ---
+        if (overflow.length > 0) {
+            core.info(`  ${overflow.length} manifest(s) have >100 deps — paginating the remainder...`);
+            const DEP_QUERY = `
+        query($id: ID!, $after: String) {
+          node(id: $id) {
+            ... on DependencyGraphManifest {
+              dependencies(first: 100, after: $after) {
+                pageInfo { hasNextPage endCursor }
+                nodes { packageName }
+              }
+            }
+          }
+        }
+      `;
+            for (const { id, depCursor: firstCursor } of overflow) {
+                let depCursor = firstCursor;
+                while (depCursor) {
+                    const res = await octokit.graphql(DEP_QUERY, { id, after: depCursor });
+                    const depPage = res.node?.dependencies;
+                    for (const dep of depPage?.nodes ?? []) {
+                        if (dep.packageName)
+                            packageNames.add(dep.packageName.toLowerCase());
+                    }
+                    depCursor = depPage?.pageInfo?.hasNextPage ? depPage.pageInfo.endCursor : null;
+                }
             }
         }
         const depsArray = Array.from(packageNames);
@@ -42439,7 +42490,7 @@ async function main() {
         const newCount = [...currentIds].filter(id => !lastSeenIds.has(id)).length;
         core.info(`${newCount} new advisory ID(s) detected since last scan. Proceeding with pipeline.`);
         // --- COMPONENT 3: DEPENDENCY MAPPER ---
-        const localDependencies = await (0, dependency_mapper_1.getRepositoryDependencies)(token, workspacePath);
+        const localDependencies = await (0, dependency_mapper_1.getRepositoryDependencies)(token);
         if (localDependencies === null) {
             core.error('CRITICAL PIPELINE HALT: Dependency Mapper failed. Check that the GitHub Dependency Graph is enabled for this repository.');
             return;
