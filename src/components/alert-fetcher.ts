@@ -1,9 +1,10 @@
 import * as core from '@actions/core';
 import * as github from '@actions/github';
+import { Advisory } from '../types';
 
-export async function fetchRecentAdvisories(token: string, ecosystems: string[]): Promise<any[]> {
+export async function fetchRecentAdvisories(token: string, ecosystems: string[]): Promise<Advisory[]> {
   const octokit = github.getOctokit(token);
-  const allAdvisories: any[] = [];
+  const allAdvisories: Advisory[] = [];
 
   const ecosystemMap: Record<string, string> = {
     'npm':      'NPM',
@@ -57,18 +58,21 @@ export async function fetchRecentAdvisories(token: string, ecosystems: string[])
       core.info(`Pulled ${nodes.length} advisories from the CTI feed for ${graphqlEnum}.`);
 
       nodes.forEach((v: any, i: number) => {
-        core.info(`  [${i + 1}] ${v.package.name} ${v.vulnerableVersionRange} — ${v.advisory.summary} (${v.severity})`);
+        const cwes    = (v.advisory.cwes?.nodes ?? []) as Array<{ cweId: string }>;
+        const cweStr  = cwes.length > 0 ? cwes.map(c => c.cweId).join(', ') : 'no CWE';
+        const cvssStr = v.advisory.cvss ? `CVSS ${(v.advisory.cvss.score as number).toFixed(1)}` : 'no CVSS';
+        core.info(`  [${i + 1}] ${v.package.name} ${v.vulnerableVersionRange} — ${v.advisory.summary} (${v.severity}) [${cweStr}] [${cvssStr}]`);
       });
 
-      const formatted = nodes.map((v: any) => ({
+      const formatted: Advisory[] = nodes.map((v: any): Advisory => ({
         ghsaId:                 v.advisory.ghsaId,
         summary:                v.advisory.summary,
-        description:            v.advisory.description,
+        description:            v.advisory.description ?? null,
         cwes:                   v.advisory.cwes?.nodes ?? [],
         cvss:                   v.advisory.cvss ?? null,
         severity:               v.severity,
         packageName:            v.package.name,
-        vulnerableVersionRange: v.vulnerableVersionRange,
+        vulnerableVersionRange: v.vulnerableVersionRange ?? null,
         firstPatchedVersion:    v.firstPatchedVersion?.identifier ?? null,
         ecosystem:              eco,
       }));

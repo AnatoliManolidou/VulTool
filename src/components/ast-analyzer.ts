@@ -2,8 +2,7 @@ import * as core from '@actions/core';
 import * as fs from 'fs';
 import * as path from 'path';
 import Parser from 'web-tree-sitter';
-
-// --- Types ---
+import { Threat } from '../types';
 
 export interface EIFCallSite {
   file: string;
@@ -29,12 +28,9 @@ export interface CodeSlice {
   callerSlices: CallerSlice[];
 }
 
-// --- Parser singleton ---
 // tree-sitter.wasm and tree-sitter-javascript.wasm are copied to dist/ by postbuild.
 // At runtime __dirname resolves to dist/, so the paths below work correctly.
-// We use the JS grammar for all JS/TS/JSX/TSX — imports and call expressions
-// are identical syntax in both languages, which is all Phase 2 needs.
-
+// The JS grammar covers TS/JSX/TSX too — import and call expression syntax is identical.
 let parser: Parser | null = null;
 let jsLanguage: Parser.Language | null = null;
 
@@ -50,8 +46,6 @@ async function initParser(): Promise<void> {
     path.join(__dirname, 'tree-sitter-javascript.wasm')
   );
 }
-
-// --- File scanner ---
 
 const SOURCE_EXTENSIONS = new Set(['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs']);
 const EXCLUDED_DIRS = new Set([
@@ -77,9 +71,7 @@ function findSourceFiles(workspacePath: string): string[] {
   return results;
 }
 
-// --- Import detection (regex pre-filter) ---
-// Quick check before spending time on a full parse.
-
+// Regex pre-filter before full parse — avoids parsing files that don't import the package.
 function fileImportsPackage(source: string, packageName: string): boolean {
   const escaped = packageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const pattern = new RegExp(
@@ -88,21 +80,17 @@ function fileImportsPackage(source: string, packageName: string): boolean {
   return pattern.test(source);
 }
 
-// --- Step 2a: extract import bindings ---
-// Returns the local identifier names that the file bound to the package.
-//
-// Handles:
-//   import express from 'pkg'            → { express }
-//   import { Router, static as s } from  → { Router, s }
-//   import * as pkg from 'pkg'           → { pkg }
-//   const express = require('pkg')       → { express }
-//   const { Router } = require('pkg')    → { Router }
-
+// Returns the local identifier names the file bound to the package.
+// Handles all import forms:
+//   import express from 'pkg'           → { express }
+//   import { Router, static as s } from → { Router, s }
+//   import * as pkg from 'pkg'          → { pkg }
+//   const express = require('pkg')      → { express }
+//   const { Router } = require('pkg')   → { Router }
 function extractImportBindings(tree: Parser.Tree, packageName: string): Set<string> {
   const bindings = new Set<string>();
   const matches = (p: string) => p === packageName || p.startsWith(packageName + '/');
 
-  // ES module import statements
   for (const stmt of tree.rootNode.descendantsOfType('import_statement')) {
     const sourceNode = stmt.childForFieldName('source');
     if (!sourceNode) continue;
@@ -113,15 +101,12 @@ function extractImportBindings(tree: Parser.Tree, packageName: string): Set<stri
       if (child.type !== 'import_clause') continue;
       for (const clauseChild of child.children) {
         if (clauseChild.type === 'identifier') {
-          // default import: import express from 'pkg'
           bindings.add(clauseChild.text);
         } else if (clauseChild.type === 'namespace_import') {
-          // namespace: import * as express from 'pkg'
           for (const c of clauseChild.children) {
             if (c.type === 'identifier') bindings.add(c.text);
           }
         } else if (clauseChild.type === 'named_imports') {
-          // named: import { Router, static as s } from 'pkg'
           for (const specifier of clauseChild.children) {
             if (specifier.type !== 'import_specifier') continue;
             // local name is the alias if present, otherwise the original name
@@ -133,7 +118,6 @@ function extractImportBindings(tree: Parser.Tree, packageName: string): Set<stri
     }
   }
 
-  // CommonJS require() calls
   for (const call of tree.rootNode.descendantsOfType('call_expression')) {
     const fn = call.childForFieldName('function');
     if (!fn || fn.type !== 'identifier' || fn.text !== 'require') continue;
@@ -153,10 +137,8 @@ function extractImportBindings(tree: Parser.Tree, packageName: string): Set<stri
     if (!pattern) continue;
 
     if (pattern.type === 'identifier') {
-      // const express = require('pkg')
       bindings.add(pattern.text);
     } else if (pattern.type === 'object_pattern') {
-      // const { Router, use: u } = require('pkg')
       for (const child of pattern.children) {
         if (child.type === 'shorthand_property_identifier_pattern') {
           bindings.add(child.text);
@@ -171,18 +153,9 @@ function extractImportBindings(tree: Parser.Tree, packageName: string): Set<stri
   return bindings;
 }
 
-// --- Step 2b: find EIF call site nodes ---
-// Returns the raw call_expression AST nodes where the callee is (or starts with)
-// one of the known package bindings.
-//
-//   express()              callee is identifier 'express'
-//   express.static(...)    callee is member_expression with object 'express'
-//   Router()               callee is identifier 'Router'
-
 function findEIFNodes(tree: Parser.Tree, bindings: Set<string>): Parser.SyntaxNode[] {
   const nodes: Parser.SyntaxNode[] = [];
 
-  // Regular call expressions: binding() or binding.method()
   for (const call of tree.rootNode.descendantsOfType('call_expression')) {
     const fn = call.childForFieldName('function');
     if (!fn) continue;
@@ -194,9 +167,8 @@ function findEIFNodes(tree: Parser.Tree, bindings: Set<string>): Parser.SyntaxNo
     }
   }
 
-  // Constructor calls: new Binding(...) — a distinct node type in the grammar.
-  // Instantiating a vulnerable class is itself an EIF (e.g. new Client({ endpoint })
-  // triggers the URL validation path where the vulnerability lives).
+  // new Binding(...) is a separate node type — instantiating a vulnerable class
+  // is itself an EIF because the constructor triggers the vulnerable code path.
   for (const newExpr of tree.rootNode.descendantsOfType('new_expression')) {
     const ctor = newExpr.childForFieldName('constructor');
     if (!ctor) continue;
@@ -210,8 +182,6 @@ function findEIFNodes(tree: Parser.Tree, bindings: Set<string>): Parser.SyntaxNo
 
   return nodes;
 }
-
-// --- Step 2c: walk up to enclosing function + slice extraction ---
 
 const FUNCTION_NODE_TYPES = new Set([
   'function_declaration',
@@ -232,8 +202,7 @@ function getEnclosingFunction(node: Parser.SyntaxNode): Parser.SyntaxNode | null
 }
 
 function buildCallerSlice(fn: Parser.SyntaxNode, source: string, file: string): CallerSlice {
-  // Named function declarations have a 'name' field directly.
-  // Arrow functions and function expressions assigned to a variable don't —
+  // Arrow functions and function expressions don't have a 'name' field —
   // the name lives on the parent variable_declarator instead.
   const nameNode = fn.childForFieldName('name');
   let functionName = nameNode?.text;
@@ -249,8 +218,7 @@ function buildCallerSlice(fn: Parser.SyntaxNode, source: string, file: string): 
   };
 }
 
-// Fallback for EIF calls at module scope (not inside any function).
-// Extracts a context window of lines around the call site.
+// EIF call at module scope (outside any function) — extract a ±10-line context window.
 function buildModuleLevelSlice(callNode: Parser.SyntaxNode, source: string, file: string): CallerSlice {
   const CONTEXT = 10;
   const lines = source.split('\n');
@@ -266,10 +234,8 @@ function buildModuleLevelSlice(callNode: Parser.SyntaxNode, source: string, file
   };
 }
 
-// --- Main export ---
-
 export async function analyzeCodeUsage(
-  npmThreats: any[],
+  npmThreats: Threat[],
   workspacePath: string
 ): Promise<CodeSlice[]> {
   core.info('Component 7: Waking up AST Analyzer...');
@@ -284,7 +250,6 @@ export async function analyzeCodeUsage(
   for (const threat of npmThreats) {
     core.info(`Analyzing usage of: ${threat.packageName} (${threat.ghsaId})`);
 
-    // Step 1 — narrow to files that import the vulnerable package (fast regex pre-filter)
     const affectedFiles: string[] = [];
     const sourceCaches = new Map<string, string>();
 
@@ -316,7 +281,6 @@ export async function analyzeCodeUsage(
       const tree = parser.parse(source);
       const relPath = path.relative(workspacePath, file);
 
-      // Step 2a — resolve which local names are bound to this package
       const bindings = extractImportBindings(tree, threat.packageName);
       if (bindings.size === 0) {
         core.info(`  [${relPath}] Import found but bindings unresolved — skipping EIF scan.`);
@@ -325,7 +289,6 @@ export async function analyzeCodeUsage(
 
       core.info(`  [${relPath}] Bindings resolved: ${[...bindings].join(', ')}`);
 
-      // Step 2b — find all EIF call site nodes
       const eifNodes = findEIFNodes(tree, bindings);
       core.info(`  [${relPath}] EIF call sites found: ${eifNodes.length}`);
 
@@ -338,8 +301,7 @@ export async function analyzeCodeUsage(
         });
       }
 
-      // Step 2c — extract unique caller slices (deduplicated by enclosing function position)
-      // If a call is at module scope (no enclosing function), fall back to a context window.
+      // Deduplicated by enclosing function position; module-scope calls fall back to a context window.
       const seenFunctions = new Set<string>();
       for (const node of eifNodes) {
         const fn = getEnclosingFunction(node);

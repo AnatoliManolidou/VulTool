@@ -1,7 +1,6 @@
 import * as core from '@actions/core';
 import * as github from '@actions/github';
 
-// Maps PURL ecosystem type identifiers to our internal ecosystem names.
 const PURL_TYPE_MAP: Record<string, string> = {
   npm:      'npm',
   pypi:     'pip',
@@ -16,20 +15,9 @@ const PURL_TYPE_MAP: Record<string, string> = {
   nuget:    'nuget',
 };
 
-/**
- * Parses a Package URL (PURL) and returns the normalized package name and
- * installed version.
- *
- * PURL format: pkg:type/[namespace/]name@version
- *
- * Examples:
- *   pkg:npm/lodash@4.17.21
- *     → { name: "lodash", version: "4.17.21" }
- *   pkg:npm/%40merill%2Flokka@2.0.0
- *     → { name: "@merill/lokka", version: "2.0.0" }
- *   pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.14.0
- *     → { name: "com.fasterxml.jackson.core:jackson-databind", version: "2.14.0" }
- */
+// PURL format: pkg:type/[namespace/]name@version
+// Scoped npm packages are URL-encoded: pkg:npm/%40scope%2Fpkg@1.0.0 → @scope/pkg
+// Maven: groupId/artifactId in PURL becomes groupId:artifactId to match advisory format
 function parsePurl(purl: string): { name: string; version: string } | null {
   if (!purl.startsWith('pkg:')) return null;
 
@@ -53,20 +41,11 @@ function parsePurl(purl: string): { name: string; version: string } | null {
   return { name: name.toLowerCase(), version };
 }
 
-/**
- * Exports the GitHub-generated SBOM for the repository and returns a map of
- * lowercased package name → installed version.
- *
- * GitHub generates the SBOM on demand from the same dependency graph data as
- * the GraphQL preview API, but returns every installed package across all
- * manifests with no per-manifest truncation. This replaces the previous
- * GraphQL approach which was hard-capped at 100 deps per manifest and had no
- * pagination path due to the preview API omitting node IDs on manifest objects.
- *
- * Requires the GitHub Dependency Graph to be enabled for the repository.
- * Returns null on hard failure so the pipeline halts rather than producing
- * false negatives.
- */
+// Uses the SBOM endpoint instead of the GraphQL Dependency Graph: the GraphQL preview
+// API caps results at 100 packages per manifest with no pagination path (manifest
+// objects omit node IDs in the preview schema, making cursor-based pagination impossible).
+// Returns null on failure — the pipeline halts rather than producing false negatives.
+// ⚠ This sync endpoint is deprecated and scheduled for removal on 2026-11-13.
 export async function getRepositoryDependencies(
   token: string
 ): Promise<Map<string, string> | null> {

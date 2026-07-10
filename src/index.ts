@@ -8,9 +8,10 @@ import { filterAdvisories } from './components/vulnerability-filter';
 import { classifyDeploymentContext } from './components/deployment-classifier';
 import { generateRemediationQueue } from './components/remediation-queue';
 import { analyzeCodeUsage, CodeSlice } from './components/ast-analyzer';
+import { Advisory, Threat } from './types';
 
-// Advisory state is cached between runs — skip the pipeline when the global
-// advisory feed has not changed since the last hourly scan.
+// Advisory IDs are cached between runs — skip the pipeline when the feed has not
+// changed since the last hourly scan.
 const STATE_FILE = '/tmp/vultool-advisory-state.json';
 const CACHE_KEY  = `vultool-advisory-state-${process.env.GITHUB_REPOSITORY ?? 'local'}`;
 
@@ -51,7 +52,7 @@ async function main() {
     core.info('');
 
     // --- COMPONENT 1: ECOSYSTEM DETECTOR ---
-    const { ecosystems: detectedEcosystems } = await detectEcosystems(workspacePath);
+    const { ecosystems: detectedEcosystems } = detectEcosystems(workspacePath);
     if (detectedEcosystems.length === 0) {
       core.info('No ecosystems detected. Exiting successfully.');
       return;
@@ -59,17 +60,15 @@ async function main() {
 
     // --- COMPONENT 2: ALERT FETCHER ---
     core.info('');
-    const rawAdvisories = await fetchRecentAdvisories(token, detectedEcosystems);
+    const rawAdvisories: Advisory[] = await fetchRecentAdvisories(token, detectedEcosystems);
     if (rawAdvisories.length === 0) {
       core.info('No recent advisories found. Exiting successfully.');
       return;
     }
 
     // --- ADVISORY SKIP CHECK ---
-    // If the GHSA ID set is identical to the last run, no new advisories have
-    // been published — skip the heavy pipeline and wait for the next hourly scan.
     const lastSeenIds = await loadLastSeenGhsaIds();
-    const currentIds  = new Set<string>(rawAdvisories.map((a: any) => a.ghsaId));
+    const currentIds  = new Set<string>(rawAdvisories.map(a => a.ghsaId));
     const hasNewIds   = lastSeenIds.size === 0 || [...currentIds].some(id => !lastSeenIds.has(id));
 
     if (!hasNewIds) {
@@ -91,8 +90,8 @@ async function main() {
 
     // --- COMPONENT 4: VULNERABILITY FILTER ---
     core.info('');
-    const finalThreats = filterAdvisories(rawAdvisories, threshold, installedPackages);
-    if (finalThreats.length === 0) {
+    const confirmedAdvisories: Advisory[] = filterAdvisories(rawAdvisories, threshold, installedPackages);
+    if (confirmedAdvisories.length === 0) {
       core.info('No matching vulnerabilities found in this repository.');
       await saveSeenGhsaIds(currentIds);
       return;
@@ -100,15 +99,15 @@ async function main() {
 
     // --- COMPONENT 5: DEPLOYMENT CLASSIFIER ---
     core.info('');
-    const contextualizedThreats = classifyDeploymentContext(finalThreats, workspacePath, detectedEcosystems);
+    const contextualizedThreats: Threat[] = classifyDeploymentContext(confirmedAdvisories, workspacePath, detectedEcosystems);
 
     // --- COMPONENT 6: REMEDIATION QUEUE ---
     core.info('');
-    const sortedThreats = generateRemediationQueue(contextualizedThreats);
+    const sortedThreats: Threat[] = generateRemediationQueue(contextualizedThreats);
 
     // --- COMPONENT 7: AST ANALYZER (npm threats only) ---
     core.info('');
-    const npmThreats = sortedThreats.filter((t: any) => t.ecosystem === 'npm');
+    const npmThreats: Threat[] = sortedThreats.filter(t => t.ecosystem === 'npm');
     let codeSlices: CodeSlice[] = [];
 
     if (npmThreats.length > 0) {
@@ -117,7 +116,6 @@ async function main() {
       core.info('Component 7: No npm threats in queue — AST analysis skipped.');
     }
 
-    // Persist the current advisory set so the next hourly run can compare against it.
     await saveSeenGhsaIds(currentIds);
 
     core.info('');

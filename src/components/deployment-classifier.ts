@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as core from '@actions/core';
+import { Advisory, Threat } from '../types';
 
 const SEVERITY_WEIGHTS: Record<string, number> = {
   'LOW':      1,
@@ -9,8 +10,7 @@ const SEVERITY_WEIGHTS: Record<string, number> = {
   'CRITICAL': 4,
 };
 
-// Each extractor adds known dev-only package names (lowercase) to the set.
-// Failures are isolated — one broken manifest doesn't affect others.
+// Failures are isolated — one broken manifest does not block the others.
 
 function extractNpmDevDeps(workspacePath: string, devDeps: Set<string>): void {
   const pkgPath = path.join(workspacePath, 'package.json');
@@ -227,12 +227,11 @@ function extractErlangDevDeps(workspacePath: string, devDeps: Set<string>): void
   } catch { /* skip */ }
 }
 
-export function classifyDeploymentContext(threats: any[], workspacePath: string, ecosystems: string[]): any[] {
+export function classifyDeploymentContext(advisories: Advisory[], workspacePath: string, ecosystems: string[]): Threat[] {
   core.info('Component 5: Waking up Deployment Classifier...');
 
   const devDependencies = new Set<string>();
 
-  // Each extractor is individually guarded — one failure doesn't block the others.
   if (ecosystems.includes('npm'))      extractNpmDevDeps(workspacePath, devDependencies);
   if (ecosystems.includes('pip'))      extractPipDevDeps(workspacePath, devDependencies);
   if (ecosystems.includes('rubygems')) extractRubyDevDeps(workspacePath, devDependencies);
@@ -242,32 +241,30 @@ export function classifyDeploymentContext(threats: any[], workspacePath: string,
   if (ecosystems.includes('nuget'))    extractNuGetDevDeps(workspacePath, devDependencies);
   if (ecosystems.includes('pub'))      extractPubDevDeps(workspacePath, devDependencies);
   if (ecosystems.includes('erlang'))   extractErlangDevDeps(workspacePath, devDependencies);
-  // Go and Swift have no dev-dependency distinction — all deps treated as production
+  // Go and Swift have no dev-dependency distinction — all deps are treated as production
 
   core.info(`Identified ${devDependencies.size} dev-only packages across all ecosystems.`);
 
-  const assessedThreats = threats.map(threat => {
-    const isDev = devDependencies.has(threat.packageName?.toLowerCase());
+  const assessedThreats: Threat[] = advisories.map(advisory => {
+    const isDev = devDependencies.has(advisory.packageName?.toLowerCase());
     const contextTag = isDev
       ? 'REDUCED RISK (Dev Environment)'
       : 'HIGH RISK (Production Environment)';
 
-    // Priority score: severity is the primary key, prod/dev is the tiebreaker.
-    // CRITICAL prod = 45, CRITICAL dev = 40, HIGH prod = 35, HIGH dev = 30, ...
-    const severityWeight = SEVERITY_WEIGHTS[threat.severity?.toUpperCase()] || 0;
+    // Severity is the primary sort key; prod/dev is the tiebreaker within the same severity
+    const severityWeight = SEVERITY_WEIGHTS[advisory.severity?.toUpperCase()] || 0;
     const priorityScore  = severityWeight * 10 + (isDev ? 0 : 5);
 
-    core.info(`  ${threat.packageName} [${threat.severity}] → ${contextTag} (score: ${priorityScore})`);
+    core.info(`  ${advisory.packageName} [${advisory.severity}] → ${contextTag} (score: ${priorityScore})`);
 
     return {
-      ...threat,
-      contextualRisk: contextTag,
+      ...advisory,
+      contextualRisk:  contextTag,
       isDevDependency: isDev,
       priorityScore,
     };
   });
 
   core.info(`Classified ${assessedThreats.length} threat(s).`);
-
   return assessedThreats;
 }

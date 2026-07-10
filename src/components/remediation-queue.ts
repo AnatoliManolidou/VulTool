@@ -1,16 +1,15 @@
 import * as core from '@actions/core';
+import { Threat } from '../types';
 
-export function generateRemediationQueue(assessedThreats: any[]): any[] {
+export function generateRemediationQueue(threats: Threat[]): Threat[] {
   core.info('Component 6: Waking up Remediation Queue...');
 
-  if (assessedThreats.length === 0) {
+  if (threats.length === 0) {
     core.info('Queue empty. No remediation required.');
     return [];
   }
 
-  // Sort descending by priorityScore (set by Deployment Classifier).
-  // Severity is the primary key; prod/dev is the tiebreaker within the same severity.
-  const sortedThreats = [...assessedThreats].sort((a, b) => b.priorityScore - a.priorityScore);
+  const sortedThreats = [...threats].sort((a, b) => b.priorityScore - a.priorityScore);
 
   core.info('=========================================');
   core.info('         FINAL REMEDIATION QUEUE         ');

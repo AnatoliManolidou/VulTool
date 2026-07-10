@@ -2,43 +2,31 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as core from '@actions/core';
 
-export async function detectEcosystems(workspacePath: string): Promise<{ ecosystems: string[] }> {
+export function detectEcosystems(workspacePath: string): { ecosystems: string[] } {
   const ecosystems: string[] = [];
 
   try {
-    core.info(`Component 1: Waking up Ecosystem Detector...`);
+    core.info('Component 1: Waking up Ecosystem Detector...');
     core.info(`Scanning workspace: ${workspacePath}`);
 
-    // Fixed-filename ecosystem signatures
     const signatures = [
-      // npm / Node.js
-      { file: 'package.json',       ecosystem: 'npm'      },
-      // Python
-      { file: 'requirements.txt',   ecosystem: 'pip'      },
-      { file: 'Pipfile',            ecosystem: 'pip'      },
-      { file: 'poetry.lock',        ecosystem: 'pip'      },
-      { file: 'pyproject.toml',     ecosystem: 'pip'      },
-      // Ruby
-      { file: 'Gemfile',            ecosystem: 'rubygems' },
-      // Rust
-      { file: 'Cargo.toml',         ecosystem: 'crates'   },
-      // Go
-      { file: 'go.mod',             ecosystem: 'go'       },
-      // Java / Maven
-      { file: 'pom.xml',            ecosystem: 'maven'    },
-      { file: 'build.gradle',       ecosystem: 'maven'    },
-      { file: 'build.gradle.kts',   ecosystem: 'maven'    },
-      // PHP / Composer
-      { file: 'composer.json',      ecosystem: 'composer' },
-      // Swift
-      { file: 'Package.swift',      ecosystem: 'swift'    },
-      // Dart / Flutter
-      { file: 'pubspec.yaml',       ecosystem: 'pub'      },
-      // Elixir / Erlang
-      { file: 'mix.exs',            ecosystem: 'erlang'   },
-      { file: 'rebar.config',       ecosystem: 'erlang'   },
-      // NuGet (packages.config — fixed filename variant)
-      { file: 'packages.config',    ecosystem: 'nuget'    },
+      { file: 'package.json',     ecosystem: 'npm'      },
+      { file: 'requirements.txt', ecosystem: 'pip'      },
+      { file: 'Pipfile',          ecosystem: 'pip'      },
+      { file: 'poetry.lock',      ecosystem: 'pip'      },
+      { file: 'pyproject.toml',   ecosystem: 'pip'      },
+      { file: 'Gemfile',          ecosystem: 'rubygems' },
+      { file: 'Cargo.toml',       ecosystem: 'crates'   },
+      { file: 'go.mod',           ecosystem: 'go'       },
+      { file: 'pom.xml',          ecosystem: 'maven'    },
+      { file: 'build.gradle',     ecosystem: 'maven'    },
+      { file: 'build.gradle.kts', ecosystem: 'maven'    },
+      { file: 'composer.json',    ecosystem: 'composer' },
+      { file: 'Package.swift',    ecosystem: 'swift'    },
+      { file: 'pubspec.yaml',     ecosystem: 'pub'      },
+      { file: 'mix.exs',          ecosystem: 'erlang'   },
+      { file: 'rebar.config',     ecosystem: 'erlang'   },
+      { file: 'packages.config',  ecosystem: 'nuget'    },
     ];
 
     for (const sig of signatures) {
@@ -51,7 +39,7 @@ export async function detectEcosystems(workspacePath: string): Promise<{ ecosyst
       }
     }
 
-    // NuGet: also scan root for *.csproj (no fixed filename)
+    // .csproj has no fixed filename — scan root directory for any .csproj file
     if (!ecosystems.includes('nuget')) {
       try {
         const rootEntries = fs.readdirSync(workspacePath);
