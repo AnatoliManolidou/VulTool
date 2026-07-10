@@ -39,7 +39,13 @@ export async function fetchRecentAdvisories(token: string, ecosystems: string[])
               vulnerableVersionRange
               firstPatchedVersion { identifier }
               package { name }
-              advisory { ghsaId summary description }
+              advisory {
+                ghsaId
+                summary
+                description
+                cwes(first: 10) { nodes { cweId name } }
+                cvss { score vectorString }
+              }
             }
           }
         }
@@ -58,6 +64,8 @@ export async function fetchRecentAdvisories(token: string, ecosystems: string[])
         ghsaId:                 v.advisory.ghsaId,
         summary:                v.advisory.summary,
         description:            v.advisory.description,
+        cwes:                   v.advisory.cwes?.nodes ?? [],
+        cvss:                   v.advisory.cvss ?? null,
         severity:               v.severity,
         packageName:            v.package.name,
         vulnerableVersionRange: v.vulnerableVersionRange,
