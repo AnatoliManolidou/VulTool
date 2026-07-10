@@ -1,3 +1,13 @@
+export type Severity =
+  | 'LOW'
+  | 'MODERATE'
+  | 'HIGH'
+  | 'CRITICAL';
+
+export type Ecosystem =
+  | 'npm' | 'pip' | 'rubygems' | 'go' | 'crates'
+  | 'maven' | 'nuget' | 'composer' | 'swift' | 'pub' | 'erlang';
+
 export interface CweInfo {
   cweId: string;
   name:  string;
@@ -15,11 +25,11 @@ export interface Advisory {
   description:            string | null;
   cwes:                   CweInfo[];
   cvss:                   CvssInfo | null;
-  severity:               string;
+  severity:               Severity;
   packageName:            string;
   vulnerableVersionRange: string | null;
   firstPatchedVersion:    string | null;
-  ecosystem:              string;
+  ecosystem:              Ecosystem;
 }
 
 // Advisory enriched with deployment context and priority score (Component 5 output)

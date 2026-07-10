@@ -1,6 +1,6 @@
 import * as core from '@actions/core';
 import * as github from '@actions/github';
-import { Advisory } from '../types';
+import { Advisory, Ecosystem, Severity } from '../types';
 
 export async function fetchRecentAdvisories(token: string, ecosystems: string[]): Promise<Advisory[]> {
   const octokit = github.getOctokit(token);
@@ -70,11 +70,11 @@ export async function fetchRecentAdvisories(token: string, ecosystems: string[])
         description:            v.advisory.description ?? null,
         cwes:                   v.advisory.cwes?.nodes ?? [],
         cvss:                   v.advisory.cvss ?? null,
-        severity:               v.severity,
+        severity:               v.severity as Severity,
         packageName:            v.package.name,
         vulnerableVersionRange: v.vulnerableVersionRange ?? null,
         firstPatchedVersion:    v.firstPatchedVersion?.identifier ?? null,
-        ecosystem:              eco,
+        ecosystem:              eco as Ecosystem,
       }));
 
       allAdvisories.push(...formatted);
