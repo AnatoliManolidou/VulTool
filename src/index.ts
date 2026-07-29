@@ -11,6 +11,8 @@ import { analyzeCodeUsage, CodeSlice } from './components/ast-analyzer';
 import { detectEntryPoint } from './components/purple-team/entry-point-detector';
 import { buildCallChain } from './components/purple-team/call-chain-builder';
 import { detectGuards } from './components/purple-team/guard-detector';
+import { assembleContext } from './components/purple-team/context-assembler';
+import { ExploitContext } from './components/purple-team/types';
 import { Advisory, Threat } from './types';
 
 // Advisory IDs are cached between runs — skip the pipeline when the feed has not
@@ -121,9 +123,12 @@ async function main() {
 
     // --- COMPONENT 8: PURPLE TEAM CONTEXT (tree-sitter) ---
     core.info('');
+    const exploitContexts: ExploitContext[] = [];
+
     if (codeSlices.length > 0) {
       core.info('Component 8: Waking up Purple Team Context Analyzer (tree-sitter)...');
       for (const slice of codeSlices) {
+        const threat = sortedThreats.find(t => t.ghsaId === slice.threatGhsaId)!;
         core.info(`  Analyzing: ${slice.packageName}`);
 
         const entryPoint = await detectEntryPoint(slice.callerSlices, workspacePath);
@@ -141,6 +146,11 @@ async function main() {
         core.info(`  Guards found  : ${guards.guards.length === 0 ? 'none' : guards.guards.map(g => g.type).join(', ')}`);
         core.info(`  Has auth      : ${guards.hasAuthentication}`);
         core.info(`  Has validation: ${guards.hasInputValidation}`);
+
+        const ctx = assembleContext(threat, slice, entryPoint, callChain, guards);
+        core.info(`  Attack class  : ${ctx.attackClass}`);
+        core.info(`  Advisory info : ${ctx.advisoryRichness}`);
+        exploitContexts.push(ctx);
       }
     } else {
       core.info('Component 8: No code slices to analyze — purple team skipped.');

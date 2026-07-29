@@ -79,29 +79,17 @@ export interface GuardContext {
   guards:             DetectedGuard[];
 }
 
-// ─── RAG ─────────────────────────────────────────────────────────────────────
-
-// A single exploit example retrieved from the knowledge base.
-export interface RagResult {
-  cweId:       string;
-  packageName: string | null;
-  description: string;
-  payload:     string | null;
-  source:      string;
-}
-
 // ─── Exploit Context ─────────────────────────────────────────────────────────
 
-// Everything assembled by steps 3–7 before the LLM call.
+// Everything assembled by C8 steps 3–5 before the LLM call.
 export interface ExploitContext {
-  threat:            Threat;
-  codeSlice:         CodeSlice;
-  attackClass:       AttackClass;
-  advisoryRichness:  AdvisoryRichness;
-  entryPoint:        EntryPoint | null;  // null when no reachable entry point is found
-  callChain:         CallChainStep[];    // ordered from entry point handler down to EIF caller
-  guards:            GuardContext;
-  ragResults:        RagResult[];
+  threat:           Threat;
+  codeSlice:        CodeSlice;
+  attackClass:      AttackClass;
+  advisoryRichness: AdvisoryRichness;
+  entryPoint:       EntryPoint | null;  // null when no reachable entry point is found
+  callChain:        CallChainStep[];    // ordered from entry point handler down to EIF caller
+  guards:           GuardContext;
 }
 
 // ─── Exploit (LLM output) ─────────────────────────────────────────────────────
