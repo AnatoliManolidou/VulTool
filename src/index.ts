@@ -8,6 +8,9 @@ import { filterAdvisories } from './components/vulnerability-filter';
 import { classifyDeploymentContext } from './components/deployment-classifier';
 import { generateRemediationQueue } from './components/remediation-queue';
 import { analyzeCodeUsage, CodeSlice } from './components/ast-analyzer';
+import { detectEntryPoint } from './components/purple-team/entry-point-detector';
+import { buildCallChain } from './components/purple-team/call-chain-builder';
+import { detectGuards } from './components/purple-team/guard-detector';
 import { Advisory, Threat } from './types';
 
 // Advisory IDs are cached between runs — skip the pipeline when the feed has not
@@ -114,6 +117,33 @@ async function main() {
       codeSlices = await analyzeCodeUsage(npmThreats, workspacePath);
     } else {
       core.info('Component 7: No npm threats in queue — AST analysis skipped.');
+    }
+
+    // --- COMPONENT 8: PURPLE TEAM CONTEXT (tree-sitter) ---
+    core.info('');
+    if (codeSlices.length > 0) {
+      core.info('Component 8: Waking up Purple Team Context Analyzer (tree-sitter)...');
+      for (const slice of codeSlices) {
+        core.info(`  Analyzing: ${slice.packageName}`);
+
+        const entryPoint = await detectEntryPoint(slice.callerSlices, workspacePath);
+        core.info(`  Entry point   : ${entryPoint ? entryPoint.identifier : 'not found'}`);
+        if (entryPoint) {
+          core.info(`  Framework     : ${entryPoint.framework ?? 'unknown'}`);
+          core.info(`  Handler fn    : ${entryPoint.handlerFunction}`);
+          core.info(`  Attack surface: ${entryPoint.attackableSurface.join(', ') || 'none detected'}`);
+        }
+
+        const callChain = await buildCallChain(entryPoint, slice, workspacePath);
+        core.info(`  Call chain    : ${callChain.length === 0 ? 'direct (no intermediates)' : callChain.map(s => s.functionName).join(' → ')}`);
+
+        const guards = detectGuards(entryPoint, callChain, slice);
+        core.info(`  Guards found  : ${guards.guards.length === 0 ? 'none' : guards.guards.map(g => g.type).join(', ')}`);
+        core.info(`  Has auth      : ${guards.hasAuthentication}`);
+        core.info(`  Has validation: ${guards.hasInputValidation}`);
+      }
+    } else {
+      core.info('Component 8: No code slices to analyze — purple team skipped.');
     }
 
     await saveSeenGhsaIds(currentIds);
