@@ -148,9 +148,28 @@ async function main() {
         core.info(`  Has validation: ${guards.hasInputValidation}`);
 
         const ctx = assembleContext(threat, slice, entryPoint, callChain, guards);
+        exploitContexts.push(ctx);
+
         core.info(`  Attack class  : ${ctx.attackClass}`);
         core.info(`  Advisory info : ${ctx.advisoryRichness}`);
-        exploitContexts.push(ctx);
+        core.info('');
+        core.info('  ── Assembled Exploit Context ───────────────────────');
+        core.info(`  Package       : ${ctx.threat.packageName} (installed: ${ctx.codeSlice.affectedFiles.length} file(s))`);
+        core.info(`  Advisory      : ${ctx.threat.ghsaId} — ${ctx.threat.summary}`);
+        core.info(`  CWEs          : ${ctx.threat.cwes.map(c => `${c.cweId} (${c.name})`).join(', ') || 'none'}`);
+        core.info(`  CVSS          : ${ctx.threat.cvss ? `${ctx.threat.cvss.score} — ${ctx.threat.cvss.vectorString}` : 'n/a'}`);
+        core.info(`  Affected range: ${ctx.threat.vulnerableVersionRange ?? 'unknown'}`);
+        core.info(`  EIF caller(s) : ${ctx.codeSlice.callerSlices.map(c => `${c.functionName} (${c.file}:${c.startLine})`).join(', ')}`);
+        core.info(`  EIF call site : ${ctx.codeSlice.eifCallSites.map(s => `${s.callExpression} (line ${s.line})`).join(', ')}`);
+        if (ctx.entryPoint) {
+          const chain = [ctx.entryPoint.handlerFunction, ...ctx.callChain.map(s => s.functionName), ...ctx.codeSlice.callerSlices.map(s => s.functionName)];
+          core.info(`  Attack path   : ${ctx.entryPoint.identifier} → ${chain.join(' → ')}`);
+          core.info(`  Attack surface: ${ctx.entryPoint.attackableSurface.join(', ')}`);
+        } else {
+          core.info('  Attack path   : entry point not found — no direct attack path traced');
+        }
+        core.info(`  Guards        : ${ctx.guards.guards.length === 0 ? 'none' : ctx.guards.guards.map(g => `${g.type} (${g.file}:${g.line})`).join(', ')}`);
+        core.info('  ────────────────────────────────────────────────────');
       }
     } else {
       core.info('Component 8: No code slices to analyze — purple team skipped.');
