@@ -41120,7 +41120,13 @@ async function fetchRecentAdvisories(token, ecosystems) {
               vulnerableVersionRange
               firstPatchedVersion { identifier }
               package { name }
-              advisory { ghsaId summary description }
+              advisory {
+                ghsaId
+                summary
+                description
+                cwes(first: 10) { nodes { cweId name } }
+                cvss { score vectorString }
+              }
             }
           }
         }
@@ -41129,15 +41135,20 @@ async function fetchRecentAdvisories(token, ecosystems) {
             const nodes = response.securityVulnerabilities.nodes;
             core.info(`Pulled ${nodes.length} advisories from the CTI feed for ${graphqlEnum}.`);
             nodes.forEach((v, i) => {
-                core.info(`  [${i + 1}] ${v.package.name} ${v.vulnerableVersionRange} — ${v.advisory.summary} (${v.severity})`);
+                const cwes = (v.advisory.cwes?.nodes ?? []);
+                const cweStr = cwes.length > 0 ? cwes.map(c => c.cweId).join(', ') : 'no CWE';
+                const cvssStr = v.advisory.cvss ? `CVSS ${v.advisory.cvss.score.toFixed(1)}` : 'no CVSS';
+                core.info(`  [${i + 1}] ${v.package.name} ${v.vulnerableVersionRange} — ${v.advisory.summary} (${v.severity}) [${cweStr}] [${cvssStr}]`);
             });
             const formatted = nodes.map((v) => ({
                 ghsaId: v.advisory.ghsaId,
                 summary: v.advisory.summary,
-                description: v.advisory.description,
+                description: v.advisory.description ?? null,
+                cwes: v.advisory.cwes?.nodes ?? [],
+                cvss: v.advisory.cvss ?? null,
                 severity: v.severity,
                 packageName: v.package.name,
-                vulnerableVersionRange: v.vulnerableVersionRange,
+                vulnerableVersionRange: v.vulnerableVersionRange ?? null,
                 firstPatchedVersion: v.firstPatchedVersion?.identifier ?? null,
                 ecosystem: eco,
             }));
@@ -41203,11 +41214,9 @@ const core = __importStar(__nccwpck_require__(37484));
 const fs = __importStar(__nccwpck_require__(79896));
 const path = __importStar(__nccwpck_require__(16928));
 const web_tree_sitter_1 = __importDefault(__nccwpck_require__(50171));
-// --- Parser singleton ---
 // tree-sitter.wasm and tree-sitter-javascript.wasm are copied to dist/ by postbuild.
 // At runtime __dirname resolves to dist/, so the paths below work correctly.
-// We use the JS grammar for all JS/TS/JSX/TSX — imports and call expressions
-// are identical syntax in both languages, which is all Phase 2 needs.
+// The JS grammar covers TS/JSX/TSX too — import and call expression syntax is identical.
 let parser = null;
 let jsLanguage = null;
 async function initParser() {
@@ -41221,7 +41230,6 @@ async function initParser() {
     parser = new web_tree_sitter_1.default();
     jsLanguage = await web_tree_sitter_1.default.Language.load(path.join(__dirname, 'tree-sitter-javascript.wasm'));
 }
-// --- File scanner ---
 const SOURCE_EXTENSIONS = new Set(['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs']);
 const EXCLUDED_DIRS = new Set([
     'node_modules', '.git', 'dist', 'build', 'out',
@@ -41250,26 +41258,22 @@ function findSourceFiles(workspacePath) {
     walk(workspacePath);
     return results;
 }
-// --- Import detection (regex pre-filter) ---
-// Quick check before spending time on a full parse.
+// Regex pre-filter before full parse — avoids parsing files that don't import the package.
 function fileImportsPackage(source, packageName) {
     const escaped = packageName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const pattern = new RegExp(`(?:from\\s+|require\\s*\\(\\s*)['"]${escaped}(?:/[^'"]*)?['"]`);
     return pattern.test(source);
 }
-// --- Step 2a: extract import bindings ---
-// Returns the local identifier names that the file bound to the package.
-//
-// Handles:
-//   import express from 'pkg'            → { express }
-//   import { Router, static as s } from  → { Router, s }
-//   import * as pkg from 'pkg'           → { pkg }
-//   const express = require('pkg')       → { express }
-//   const { Router } = require('pkg')    → { Router }
+// Returns the local identifier names the file bound to the package.
+// Handles all import forms:
+//   import express from 'pkg'           → { express }
+//   import { Router, static as s } from → { Router, s }
+//   import * as pkg from 'pkg'          → { pkg }
+//   const express = require('pkg')      → { express }
+//   const { Router } = require('pkg')   → { Router }
 function extractImportBindings(tree, packageName) {
     const bindings = new Set();
     const matches = (p) => p === packageName || p.startsWith(packageName + '/');
-    // ES module import statements
     for (const stmt of tree.rootNode.descendantsOfType('import_statement')) {
         const sourceNode = stmt.childForFieldName('source');
         if (!sourceNode)
@@ -41282,18 +41286,15 @@ function extractImportBindings(tree, packageName) {
                 continue;
             for (const clauseChild of child.children) {
                 if (clauseChild.type === 'identifier') {
-                    // default import: import express from 'pkg'
                     bindings.add(clauseChild.text);
                 }
                 else if (clauseChild.type === 'namespace_import') {
-                    // namespace: import * as express from 'pkg'
                     for (const c of clauseChild.children) {
                         if (c.type === 'identifier')
                             bindings.add(c.text);
                     }
                 }
                 else if (clauseChild.type === 'named_imports') {
-                    // named: import { Router, static as s } from 'pkg'
                     for (const specifier of clauseChild.children) {
                         if (specifier.type !== 'import_specifier')
                             continue;
@@ -41306,7 +41307,6 @@ function extractImportBindings(tree, packageName) {
             }
         }
     }
-    // CommonJS require() calls
     for (const call of tree.rootNode.descendantsOfType('call_expression')) {
         const fn = call.childForFieldName('function');
         if (!fn || fn.type !== 'identifier' || fn.text !== 'require')
@@ -41330,11 +41330,9 @@ function extractImportBindings(tree, packageName) {
         if (!pattern)
             continue;
         if (pattern.type === 'identifier') {
-            // const express = require('pkg')
             bindings.add(pattern.text);
         }
         else if (pattern.type === 'object_pattern') {
-            // const { Router, use: u } = require('pkg')
             for (const child of pattern.children) {
                 if (child.type === 'shorthand_property_identifier_pattern') {
                     bindings.add(child.text);
@@ -41349,16 +41347,8 @@ function extractImportBindings(tree, packageName) {
     }
     return bindings;
 }
-// --- Step 2b: find EIF call site nodes ---
-// Returns the raw call_expression AST nodes where the callee is (or starts with)
-// one of the known package bindings.
-//
-//   express()              callee is identifier 'express'
-//   express.static(...)    callee is member_expression with object 'express'
-//   Router()               callee is identifier 'Router'
 function findEIFNodes(tree, bindings) {
     const nodes = [];
-    // Regular call expressions: binding() or binding.method()
     for (const call of tree.rootNode.descendantsOfType('call_expression')) {
         const fn = call.childForFieldName('function');
         if (!fn)
@@ -41372,9 +41362,8 @@ function findEIFNodes(tree, bindings) {
                 nodes.push(call);
         }
     }
-    // Constructor calls: new Binding(...) — a distinct node type in the grammar.
-    // Instantiating a vulnerable class is itself an EIF (e.g. new Client({ endpoint })
-    // triggers the URL validation path where the vulnerability lives).
+    // new Binding(...) is a separate node type — instantiating a vulnerable class
+    // is itself an EIF because the constructor triggers the vulnerable code path.
     for (const newExpr of tree.rootNode.descendantsOfType('new_expression')) {
         const ctor = newExpr.childForFieldName('constructor');
         if (!ctor)
@@ -41390,7 +41379,6 @@ function findEIFNodes(tree, bindings) {
     }
     return nodes;
 }
-// --- Step 2c: walk up to enclosing function + slice extraction ---
 const FUNCTION_NODE_TYPES = new Set([
     'function_declaration',
     'function_expression',
@@ -41409,8 +41397,7 @@ function getEnclosingFunction(node) {
     return null;
 }
 function buildCallerSlice(fn, source, file) {
-    // Named function declarations have a 'name' field directly.
-    // Arrow functions and function expressions assigned to a variable don't —
+    // Arrow functions and function expressions don't have a 'name' field —
     // the name lives on the parent variable_declarator instead.
     const nameNode = fn.childForFieldName('name');
     let functionName = nameNode?.text;
@@ -41425,8 +41412,7 @@ function buildCallerSlice(fn, source, file) {
         endLine: fn.endPosition.row + 1,
     };
 }
-// Fallback for EIF calls at module scope (not inside any function).
-// Extracts a context window of lines around the call site.
+// EIF call at module scope (outside any function) — extract a ±10-line context window.
 function buildModuleLevelSlice(callNode, source, file) {
     const CONTEXT = 10;
     const lines = source.split('\n');
@@ -41441,7 +41427,6 @@ function buildModuleLevelSlice(callNode, source, file) {
         endLine: endLine + 1,
     };
 }
-// --- Main export ---
 async function analyzeCodeUsage(npmThreats, workspacePath) {
     core.info('Component 7: Waking up AST Analyzer...');
     await initParser();
@@ -41450,7 +41435,6 @@ async function analyzeCodeUsage(npmThreats, workspacePath) {
     const results = [];
     for (const threat of npmThreats) {
         core.info(`Analyzing usage of: ${threat.packageName} (${threat.ghsaId})`);
-        // Step 1 — narrow to files that import the vulnerable package (fast regex pre-filter)
         const affectedFiles = [];
         const sourceCaches = new Map();
         for (const file of sourceFiles) {
@@ -41477,14 +41461,12 @@ async function analyzeCodeUsage(npmThreats, workspacePath) {
             parser.setLanguage(jsLanguage);
             const tree = parser.parse(source);
             const relPath = path.relative(workspacePath, file);
-            // Step 2a — resolve which local names are bound to this package
             const bindings = extractImportBindings(tree, threat.packageName);
             if (bindings.size === 0) {
                 core.info(`  [${relPath}] Import found but bindings unresolved — skipping EIF scan.`);
                 continue;
             }
             core.info(`  [${relPath}] Bindings resolved: ${[...bindings].join(', ')}`);
-            // Step 2b — find all EIF call site nodes
             const eifNodes = findEIFNodes(tree, bindings);
             core.info(`  [${relPath}] EIF call sites found: ${eifNodes.length}`);
             for (const node of eifNodes) {
@@ -41495,8 +41477,7 @@ async function analyzeCodeUsage(npmThreats, workspacePath) {
                     callExpression: text.length > 120 ? text.slice(0, 120) + '...' : text,
                 });
             }
-            // Step 2c — extract unique caller slices (deduplicated by enclosing function position)
-            // If a call is at module scope (no enclosing function), fall back to a context window.
+            // Deduplicated by enclosing function position; module-scope calls fall back to a context window.
             const seenFunctions = new Set();
             for (const node of eifNodes) {
                 const fn = getEnclosingFunction(node);
@@ -41579,7 +41560,6 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.getRepositoryDependencies = getRepositoryDependencies;
 const core = __importStar(__nccwpck_require__(37484));
 const github = __importStar(__nccwpck_require__(93228));
-// Maps PURL ecosystem type identifiers to our internal ecosystem names.
 const PURL_TYPE_MAP = {
     npm: 'npm',
     pypi: 'pip',
@@ -41593,20 +41573,9 @@ const PURL_TYPE_MAP = {
     hex: 'erlang',
     nuget: 'nuget',
 };
-/**
- * Parses a Package URL (PURL) and returns the normalized package name and
- * installed version.
- *
- * PURL format: pkg:type/[namespace/]name@version
- *
- * Examples:
- *   pkg:npm/lodash@4.17.21
- *     → { name: "lodash", version: "4.17.21" }
- *   pkg:npm/%40merill%2Flokka@2.0.0
- *     → { name: "@merill/lokka", version: "2.0.0" }
- *   pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.14.0
- *     → { name: "com.fasterxml.jackson.core:jackson-databind", version: "2.14.0" }
- */
+// PURL format: pkg:type/[namespace/]name@version
+// Scoped npm packages are URL-encoded: pkg:npm/%40scope%2Fpkg@1.0.0 → @scope/pkg
+// Maven: groupId/artifactId in PURL becomes groupId:artifactId to match advisory format
 function parsePurl(purl) {
     if (!purl.startsWith('pkg:'))
         return null;
@@ -41626,20 +41595,11 @@ function parsePurl(purl) {
     }
     return { name: name.toLowerCase(), version };
 }
-/**
- * Exports the GitHub-generated SBOM for the repository and returns a map of
- * lowercased package name → installed version.
- *
- * GitHub generates the SBOM on demand from the same dependency graph data as
- * the GraphQL preview API, but returns every installed package across all
- * manifests with no per-manifest truncation. This replaces the previous
- * GraphQL approach which was hard-capped at 100 deps per manifest and had no
- * pagination path due to the preview API omitting node IDs on manifest objects.
- *
- * Requires the GitHub Dependency Graph to be enabled for the repository.
- * Returns null on hard failure so the pipeline halts rather than producing
- * false negatives.
- */
+// Uses the SBOM endpoint instead of the GraphQL Dependency Graph: the GraphQL preview
+// API caps results at 100 packages per manifest with no pagination path (manifest
+// objects omit node IDs in the preview schema, making cursor-based pagination impossible).
+// Returns null on failure — the pipeline halts rather than producing false negatives.
+// ⚠ This sync endpoint is deprecated and scheduled for removal on 2026-11-13.
 async function getRepositoryDependencies(token) {
     const octokit = github.getOctokit(token);
     const { owner, repo } = github.context.repo;
@@ -41727,8 +41687,7 @@ const SEVERITY_WEIGHTS = {
     'HIGH': 3,
     'CRITICAL': 4,
 };
-// Each extractor adds known dev-only package names (lowercase) to the set.
-// Failures are isolated — one broken manifest doesn't affect others.
+// Failures are isolated — one broken manifest does not block the others.
 function extractNpmDevDeps(workspacePath, devDeps) {
     const pkgPath = path.join(workspacePath, 'package.json');
     if (!fs.existsSync(pkgPath))
@@ -41976,10 +41935,9 @@ function extractErlangDevDeps(workspacePath, devDeps) {
     }
     catch { /* skip */ }
 }
-function classifyDeploymentContext(threats, workspacePath, ecosystems) {
+function classifyDeploymentContext(advisories, workspacePath, ecosystems) {
     core.info('Component 5: Waking up Deployment Classifier...');
     const devDependencies = new Set();
-    // Each extractor is individually guarded — one failure doesn't block the others.
     if (ecosystems.includes('npm'))
         extractNpmDevDeps(workspacePath, devDependencies);
     if (ecosystems.includes('pip'))
@@ -41998,20 +41956,19 @@ function classifyDeploymentContext(threats, workspacePath, ecosystems) {
         extractPubDevDeps(workspacePath, devDependencies);
     if (ecosystems.includes('erlang'))
         extractErlangDevDeps(workspacePath, devDependencies);
-    // Go and Swift have no dev-dependency distinction — all deps treated as production
+    // Go and Swift have no dev-dependency distinction — all deps are treated as production
     core.info(`Identified ${devDependencies.size} dev-only packages across all ecosystems.`);
-    const assessedThreats = threats.map(threat => {
-        const isDev = devDependencies.has(threat.packageName?.toLowerCase());
+    const assessedThreats = advisories.map(advisory => {
+        const isDev = devDependencies.has(advisory.packageName?.toLowerCase());
         const contextTag = isDev
             ? 'REDUCED RISK (Dev Environment)'
             : 'HIGH RISK (Production Environment)';
-        // Priority score: severity is the primary key, prod/dev is the tiebreaker.
-        // CRITICAL prod = 45, CRITICAL dev = 40, HIGH prod = 35, HIGH dev = 30, ...
-        const severityWeight = SEVERITY_WEIGHTS[threat.severity?.toUpperCase()] || 0;
+        // Severity is the primary sort key; prod/dev is the tiebreaker within the same severity
+        const severityWeight = SEVERITY_WEIGHTS[advisory.severity?.toUpperCase()] || 0;
         const priorityScore = severityWeight * 10 + (isDev ? 0 : 5);
-        core.info(`  ${threat.packageName} [${threat.severity}] → ${contextTag} (score: ${priorityScore})`);
+        core.info(`  ${advisory.packageName} [${advisory.severity}] → ${contextTag} (score: ${priorityScore})`);
         return {
-            ...threat,
+            ...advisory,
             contextualRisk: contextTag,
             isDevDependency: isDev,
             priorityScore,
@@ -42067,40 +42024,28 @@ exports.detectEcosystems = detectEcosystems;
 const fs = __importStar(__nccwpck_require__(79896));
 const path = __importStar(__nccwpck_require__(16928));
 const core = __importStar(__nccwpck_require__(37484));
-async function detectEcosystems(workspacePath) {
+function detectEcosystems(workspacePath) {
     const ecosystems = [];
     try {
-        core.info(`Component 1: Waking up Ecosystem Detector...`);
+        core.info('Component 1: Waking up Ecosystem Detector...');
         core.info(`Scanning workspace: ${workspacePath}`);
-        // Fixed-filename ecosystem signatures
         const signatures = [
-            // npm / Node.js
             { file: 'package.json', ecosystem: 'npm' },
-            // Python
             { file: 'requirements.txt', ecosystem: 'pip' },
             { file: 'Pipfile', ecosystem: 'pip' },
             { file: 'poetry.lock', ecosystem: 'pip' },
             { file: 'pyproject.toml', ecosystem: 'pip' },
-            // Ruby
             { file: 'Gemfile', ecosystem: 'rubygems' },
-            // Rust
             { file: 'Cargo.toml', ecosystem: 'crates' },
-            // Go
             { file: 'go.mod', ecosystem: 'go' },
-            // Java / Maven
             { file: 'pom.xml', ecosystem: 'maven' },
             { file: 'build.gradle', ecosystem: 'maven' },
             { file: 'build.gradle.kts', ecosystem: 'maven' },
-            // PHP / Composer
             { file: 'composer.json', ecosystem: 'composer' },
-            // Swift
             { file: 'Package.swift', ecosystem: 'swift' },
-            // Dart / Flutter
             { file: 'pubspec.yaml', ecosystem: 'pub' },
-            // Elixir / Erlang
             { file: 'mix.exs', ecosystem: 'erlang' },
             { file: 'rebar.config', ecosystem: 'erlang' },
-            // NuGet (packages.config — fixed filename variant)
             { file: 'packages.config', ecosystem: 'nuget' },
         ];
         for (const sig of signatures) {
@@ -42112,7 +42057,7 @@ async function detectEcosystems(workspacePath) {
                 }
             }
         }
-        // NuGet: also scan root for *.csproj (no fixed filename)
+        // .csproj has no fixed filename — scan root directory for any .csproj file
         if (!ecosystems.includes('nuget')) {
             try {
                 const rootEntries = fs.readdirSync(workspacePath);
@@ -42133,6 +42078,660 @@ async function detectEcosystems(workspacePath) {
         }
     }
     return { ecosystems };
+}
+
+
+/***/ }),
+
+/***/ 9285:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.buildCallChain = buildCallChain;
+const fs = __importStar(__nccwpck_require__(79896));
+const path = __importStar(__nccwpck_require__(16928));
+const web_tree_sitter_1 = __importDefault(__nccwpck_require__(50171));
+const MAX_DEPTH = 8;
+// ─── Parser ───────────────────────────────────────────────────────────────────
+let parser = null;
+let jsLanguage = null;
+async function initParser() {
+    if (parser)
+        return;
+    await web_tree_sitter_1.default.init({ locateFile: (f) => path.join(__dirname, f) });
+    parser = new web_tree_sitter_1.default();
+    jsLanguage = await web_tree_sitter_1.default.Language.load(path.join(__dirname, 'tree-sitter-javascript.wasm'));
+}
+// ─── File Scanner ─────────────────────────────────────────────────────────────
+const SOURCE_EXTENSIONS = new Set(['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs']);
+const EXCLUDED_DIRS = new Set([
+    'node_modules', '.git', 'dist', 'build', 'out', 'coverage', '.next', '.nuxt', '.cache',
+]);
+function findSourceFiles(workspacePath) {
+    const results = [];
+    function walk(dir) {
+        let entries;
+        try {
+            entries = fs.readdirSync(dir, { withFileTypes: true });
+        }
+        catch {
+            return;
+        }
+        for (const entry of entries) {
+            if (entry.isDirectory() && !EXCLUDED_DIRS.has(entry.name)) {
+                walk(path.join(dir, entry.name));
+            }
+            else if (entry.isFile() && SOURCE_EXTENSIONS.has(path.extname(entry.name))) {
+                results.push(path.join(dir, entry.name));
+            }
+        }
+    }
+    walk(workspacePath);
+    return results;
+}
+// Searches all source files for the first definition of a function with the given name.
+// Covers: function declarations, arrow functions, and function expressions assigned to variables.
+function findFunctionDef(name, files) {
+    if (!parser || !jsLanguage)
+        return null;
+    for (const file of files) {
+        let source;
+        try {
+            source = fs.readFileSync(file, 'utf8');
+        }
+        catch {
+            continue;
+        }
+        if (!source.includes(name))
+            continue;
+        parser.setLanguage(jsLanguage);
+        const tree = parser.parse(source);
+        for (const node of tree.rootNode.descendantsOfType('function_declaration')) {
+            if (node.childForFieldName('name')?.text === name) {
+                return { file, startLine: node.startPosition.row + 1, endLine: node.endPosition.row + 1, sourceText: node.text };
+            }
+        }
+        for (const node of tree.rootNode.descendantsOfType('variable_declarator')) {
+            const id = node.childForFieldName('name');
+            const value = node.childForFieldName('value');
+            if (id?.text !== name || !value)
+                continue;
+            if (value.type !== 'arrow_function' && value.type !== 'function_expression')
+                continue;
+            return { file, startLine: value.startPosition.row + 1, endLine: value.endPosition.row + 1, sourceText: value.text };
+        }
+    }
+    return null;
+}
+// ─── Call Extractor ───────────────────────────────────────────────────────────
+// Returns the names of all functions called directly within a source fragment.
+// Captures both free calls (foo()) and method calls (obj.foo()) — method names
+// are included because intermediate functions are often called via a service instance.
+function extractCalledNames(source) {
+    if (!parser || !jsLanguage)
+        return new Set();
+    parser.setLanguage(jsLanguage);
+    const tree = parser.parse(source);
+    const called = new Set();
+    for (const node of tree.rootNode.descendantsOfType('call_expression')) {
+        const fn = node.childForFieldName('function');
+        if (fn?.type === 'identifier') {
+            called.add(fn.text);
+        }
+        else if (fn?.type === 'member_expression') {
+            const prop = fn.childForFieldName('property');
+            if (prop)
+                called.add(prop.text);
+        }
+    }
+    return called;
+}
+// ─── BFS Path Finder ─────────────────────────────────────────────────────────
+async function buildCallChain(entryPoint, codeSlice, workspacePath) {
+    if (!entryPoint)
+        return [];
+    await initParser();
+    const callerNames = new Set(codeSlice.callerSlices.map(s => s.functionName));
+    // Direct case: the entry point handler itself is one of the EIF callers.
+    if (callerNames.has(entryPoint.handlerFunction))
+        return [];
+    const files = findSourceFiles(workspacePath);
+    // parent_map tracks how we reached each function — used to reconstruct the path.
+    const parentMap = new Map();
+    const defCache = new Map();
+    parentMap.set(entryPoint.handlerFunction, null);
+    // Seed the cache with the handler source we already have from Step 3
+    // so we don't re-scan for it.
+    defCache.set(entryPoint.handlerFunction, {
+        file: entryPoint.handlerFile,
+        startLine: entryPoint.handlerStartLine,
+        endLine: entryPoint.handlerStartLine,
+        sourceText: entryPoint.handlerSource,
+    });
+    const queue = [entryPoint.handlerFunction];
+    let depth = 0;
+    let found = null;
+    outer: while (queue.length > 0 && depth < MAX_DEPTH) {
+        const levelSize = queue.length;
+        for (let i = 0; i < levelSize; i++) {
+            const current = queue.shift();
+            let currentDef = defCache.get(current) ?? null;
+            if (currentDef === undefined) {
+                currentDef = findFunctionDef(current, files);
+                defCache.set(current, currentDef);
+            }
+            if (!currentDef)
+                continue;
+            for (const callee of extractCalledNames(currentDef.sourceText)) {
+                if (callerNames.has(callee)) {
+                    parentMap.set(callee, current);
+                    found = callee;
+                    break outer;
+                }
+                if (!parentMap.has(callee)) {
+                    parentMap.set(callee, current);
+                    queue.push(callee);
+                }
+            }
+        }
+        depth++;
+    }
+    if (!found)
+        return [];
+    // Collect intermediate function names by walking the parent_map backwards
+    // from the found EIF caller up to (but not including) the entry point handler.
+    const intermediateNames = [];
+    let cursor = parentMap.get(found) ?? null;
+    while (cursor !== null && cursor !== entryPoint.handlerFunction) {
+        intermediateNames.unshift(cursor);
+        cursor = parentMap.get(cursor) ?? null;
+    }
+    // Resolve each intermediate name to a full CallChainStep
+    const chain = [];
+    for (const name of intermediateNames) {
+        const def = defCache.get(name) ?? findFunctionDef(name, files);
+        if (!def)
+            continue;
+        defCache.set(name, def);
+        chain.push({
+            functionName: name,
+            file: def.file,
+            startLine: def.startLine,
+            endLine: def.endLine,
+            sourceText: def.sourceText,
+        });
+    }
+    return chain;
+}
+
+
+/***/ }),
+
+/***/ 85367:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.detectEntryPoint = detectEntryPoint;
+const fs = __importStar(__nccwpck_require__(79896));
+const path = __importStar(__nccwpck_require__(16928));
+const web_tree_sitter_1 = __importDefault(__nccwpck_require__(50171));
+// ─── Parser ───────────────────────────────────────────────────────────────────
+let parser = null;
+let jsLanguage = null;
+async function initParser() {
+    if (parser)
+        return;
+    await web_tree_sitter_1.default.init({ locateFile: (f) => path.join(__dirname, f) });
+    parser = new web_tree_sitter_1.default();
+    jsLanguage = await web_tree_sitter_1.default.Language.load(path.join(__dirname, 'tree-sitter-javascript.wasm'));
+}
+// ─── Framework Detection ──────────────────────────────────────────────────────
+function readDependencies(workspacePath) {
+    try {
+        const pkg = JSON.parse(fs.readFileSync(path.join(workspacePath, 'package.json'), 'utf8'));
+        return { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
+    }
+    catch {
+        return {};
+    }
+}
+function resolveHttpFramework(deps) {
+    if (deps['express'])
+        return 'express';
+    if (deps['fastify'])
+        return 'fastify';
+    if (deps['koa'])
+        return 'koa';
+    if (deps['@hapi/hapi'])
+        return 'hapi';
+    if (deps['@nestjs/core'])
+        return 'nestjs';
+    return null;
+}
+function resolveWsFramework(deps) {
+    if (deps['socket.io'])
+        return 'socket.io';
+    if (deps['ws'])
+        return 'ws';
+    return null;
+}
+function resolveQueueFramework(deps) {
+    if (deps['bullmq'])
+        return 'bullmq';
+    if (deps['bull'])
+        return 'bull';
+    if (deps['amqplib'])
+        return 'amqplib';
+    if (deps['kafkajs'])
+        return 'kafkajs';
+    return null;
+}
+// ─── Pre-filter Regexes ───────────────────────────────────────────────────────
+// Each regex is checked against the raw file source before paying the cost of a full parse.
+const HTTP_ROUTE_RE = /\.(get|post|put|delete|patch|use)\s*\(/;
+const WS_HANDLER_RE = /\.on\s*\(\s*['"](?:connection|message|data)/;
+const QUEUE_WORKER_RE = /queue\.process|new\s+Worker\s*\(|consumer\.run|channel\.consume/;
+const CRON_RE = /cron\.schedule|agenda\.define|scheduleJob\s*\(/;
+// ─── Attackable Surface Extraction ───────────────────────────────────────────
+// Scans a handler's source text for every field the handler reads from the incoming
+// request. These are the fields the attacker can control.
+function extractAttackableSurface(source) {
+    const patterns = [
+        /req\.body(?:\.\w+)*/g,
+        /req\.params(?:\.\w+)*/g,
+        /req\.query(?:\.\w+)*/g,
+        /req\.headers(?:\.\w+)*/g,
+        /req\.cookies?(?:\.\w+)*/g,
+        /req\.files?(?:\.\w+)*/g,
+        /ctx\.request\.body(?:\.\w+)*/g,
+        /ctx\.params(?:\.\w+)*/g,
+        /ctx\.query(?:\.\w+)*/g,
+    ];
+    const found = new Set();
+    for (const re of patterns) {
+        for (const match of source.matchAll(re))
+            found.add(match[0]);
+    }
+    return [...found];
+}
+// ─── HTTP Entry Point ─────────────────────────────────────────────────────────
+const HTTP_METHODS = new Set(['get', 'post', 'put', 'delete', 'patch', 'use']);
+function findHttpEntryPoint(callerNames, files, framework) {
+    for (const file of files) {
+        let source;
+        try {
+            source = fs.readFileSync(file, 'utf8');
+        }
+        catch {
+            continue;
+        }
+        if (!HTTP_ROUTE_RE.test(source))
+            continue;
+        if (![...callerNames].some(name => source.includes(name)))
+            continue;
+        if (!parser || !jsLanguage)
+            continue;
+        parser.setLanguage(jsLanguage);
+        const tree = parser.parse(source);
+        for (const call of tree.rootNode.descendantsOfType('call_expression')) {
+            const fn = call.childForFieldName('function');
+            if (!fn || fn.type !== 'member_expression')
+                continue;
+            const method = fn.childForFieldName('property')?.text?.toLowerCase();
+            if (!method || !HTTP_METHODS.has(method))
+                continue;
+            const args = call.childForFieldName('arguments');
+            if (!args)
+                continue;
+            const argNodes = args.children.filter(c => c.type !== ',' && c.type !== '(' && c.type !== ')');
+            // First string argument is the route path
+            const routePath = argNodes
+                .find(n => n.type === 'string')
+                ?.text.replace(/^['"`]|['"`]$/g, '') ?? '';
+            // Last function argument is the handler (middleware may precede it)
+            const handlerNode = [...argNodes].reverse().find(n => n.type === 'arrow_function' ||
+                n.type === 'function_expression' ||
+                n.type === 'identifier');
+            if (!handlerNode)
+                continue;
+            const handlerSource = handlerNode.text;
+            const matchedCaller = [...callerNames].find(name => handlerSource.includes(name));
+            if (!matchedCaller)
+                continue;
+            return {
+                type: 'http-route',
+                identifier: `${method.toUpperCase()} ${routePath || '/'}`,
+                framework: framework,
+                handlerFunction: matchedCaller,
+                handlerFile: file,
+                handlerStartLine: handlerNode.startPosition.row + 1,
+                handlerSource,
+                attackableSurface: extractAttackableSurface(handlerSource),
+            };
+        }
+    }
+    return null;
+}
+// ─── WebSocket Entry Point ────────────────────────────────────────────────────
+function findWsEntryPoint(callerNames, files, framework) {
+    for (const file of files) {
+        let source;
+        try {
+            source = fs.readFileSync(file, 'utf8');
+        }
+        catch {
+            continue;
+        }
+        if (!WS_HANDLER_RE.test(source))
+            continue;
+        if (![...callerNames].some(name => source.includes(name)))
+            continue;
+        if (!parser || !jsLanguage)
+            continue;
+        parser.setLanguage(jsLanguage);
+        const tree = parser.parse(source);
+        for (const call of tree.rootNode.descendantsOfType('call_expression')) {
+            const fn = call.childForFieldName('function');
+            if (!fn || fn.type !== 'member_expression')
+                continue;
+            if (fn.childForFieldName('property')?.text !== 'on')
+                continue;
+            const args = call.childForFieldName('arguments');
+            if (!args)
+                continue;
+            const argNodes = args.children.filter(c => c.type !== ',' && c.type !== '(' && c.type !== ')');
+            const event = argNodes[0]?.text.replace(/^['"`]|['"`]$/g, '') ?? '';
+            if (!['connection', 'message', 'data'].includes(event))
+                continue;
+            const handlerNode = argNodes[1];
+            if (!handlerNode)
+                continue;
+            const handlerSource = handlerNode.text;
+            const matchedCaller = [...callerNames].find(name => handlerSource.includes(name));
+            if (!matchedCaller)
+                continue;
+            return {
+                type: 'websocket',
+                identifier: `ws:${event}`,
+                framework: framework,
+                handlerFunction: matchedCaller,
+                handlerFile: file,
+                handlerStartLine: handlerNode.startPosition.row + 1,
+                handlerSource,
+                // WebSocket payload fields are not standardised — flag both common shapes
+                attackableSurface: ['message.data', 'message.payload'],
+            };
+        }
+    }
+    return null;
+}
+// ─── Message Queue Entry Point ────────────────────────────────────────────────
+function findQueueEntryPoint(callerNames, files, framework) {
+    for (const file of files) {
+        let source;
+        try {
+            source = fs.readFileSync(file, 'utf8');
+        }
+        catch {
+            continue;
+        }
+        if (!QUEUE_WORKER_RE.test(source))
+            continue;
+        const matchedCaller = [...callerNames].find(name => source.includes(name));
+        if (!matchedCaller)
+            continue;
+        // Queue consumer patterns vary significantly across libraries — regex is
+        // more reliable here than AST traversal for the initial detection.
+        const queueName = source.match(/new\s+Worker\s*\(\s*['"`]([^'"`]+)['"`]/)?.[1] ??
+            source.match(/queue\.process\s*\(\s*['"`]([^'"`]+)['"`]/)?.[1] ??
+            'unknown';
+        return {
+            type: 'message-queue',
+            identifier: `queue:${queueName}`,
+            framework: framework,
+            handlerFunction: matchedCaller,
+            handlerFile: file,
+            handlerStartLine: 0,
+            handlerSource: source,
+            attackableSurface: ['job.data', 'message.content'],
+        };
+    }
+    return null;
+}
+// ─── Cron Entry Point ─────────────────────────────────────────────────────────
+function findCronEntryPoint(callerNames, files) {
+    for (const file of files) {
+        let source;
+        try {
+            source = fs.readFileSync(file, 'utf8');
+        }
+        catch {
+            continue;
+        }
+        if (!CRON_RE.test(source))
+            continue;
+        const matchedCaller = [...callerNames].find(name => source.includes(name));
+        if (!matchedCaller)
+            continue;
+        const schedule = source.match(/cron\.schedule\s*\(\s*['"`]([^'"`]+)['"`]/)?.[1] ??
+            source.match(/scheduleJob\s*\(\s*['"`]([^'"`]+)['"`]/)?.[1] ??
+            'unknown';
+        return {
+            type: 'cron-job',
+            identifier: `cron:${schedule}`,
+            framework: null,
+            handlerFunction: matchedCaller,
+            handlerFile: file,
+            handlerStartLine: 0,
+            handlerSource: source,
+            // Cron jobs are not directly triggerable by an external attacker
+            attackableSurface: [],
+        };
+    }
+    return null;
+}
+// ─── File Scanner ─────────────────────────────────────────────────────────────
+const SOURCE_EXTENSIONS = new Set(['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs']);
+const EXCLUDED_DIRS = new Set([
+    'node_modules', '.git', 'dist', 'build', 'out',
+    'coverage', '.next', '.nuxt', '.cache', '__pycache__',
+]);
+function findSourceFiles(workspacePath) {
+    const results = [];
+    function walk(dir) {
+        let entries;
+        try {
+            entries = fs.readdirSync(dir, { withFileTypes: true });
+        }
+        catch {
+            return;
+        }
+        for (const entry of entries) {
+            if (entry.isDirectory() && !EXCLUDED_DIRS.has(entry.name)) {
+                walk(path.join(dir, entry.name));
+            }
+            else if (entry.isFile() && SOURCE_EXTENSIONS.has(path.extname(entry.name))) {
+                results.push(path.join(dir, entry.name));
+            }
+        }
+    }
+    walk(workspacePath);
+    return results;
+}
+// ─── Main Export ──────────────────────────────────────────────────────────────
+async function detectEntryPoint(callerSlices, workspacePath) {
+    await initParser();
+    // Anonymous and module-level callers have no useful name to search for
+    const callerNames = new Set(callerSlices
+        .map(s => s.functionName)
+        .filter(n => n !== '<anonymous>' && n !== '<module>'));
+    if (callerNames.size === 0)
+        return null;
+    const deps = readDependencies(workspacePath);
+    const httpFramework = resolveHttpFramework(deps);
+    const wsFramework = resolveWsFramework(deps);
+    const queueFw = resolveQueueFramework(deps);
+    const files = findSourceFiles(workspacePath);
+    // Priority: HTTP is checked first — it is the most accessible surface
+    // for an external attacker and the most common in web applications.
+    return (findHttpEntryPoint(callerNames, files, httpFramework) ??
+        findWsEntryPoint(callerNames, files, wsFramework) ??
+        findQueueEntryPoint(callerNames, files, queueFw) ??
+        findCronEntryPoint(callerNames, files) ??
+        null);
+}
+
+
+/***/ }),
+
+/***/ 78681:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.detectGuards = detectGuards;
+// ─── Guard Patterns ───────────────────────────────────────────────────────────
+// One pattern per GuardType. Each regex looks for the most common library calls
+// and naming conventions — not exhaustive but covers the dominant patterns in
+// npm web apps (Express, Fastify, Koa, NestJS).
+const GUARD_PATTERNS = {
+    'authentication': /passport\.authenticate|jwt\.verify|jsonwebtoken\.verify|req\.isAuthenticated\s*\(\)|verifyToken|authenticateJWT|requireAuth|@UseGuards.*AuthGuard/i,
+    'authorization': /req\.user\.role|hasPermission|checkRole|hasRole|authorize\s*\(|@Roles\s*\(/i,
+    'input-validation': /Joi\s*\.|validationResult\s*\(|z\s*\.\s*(parse|safeParse)|\.safeParse\s*\(|yup\s*\.|check\s*\(['"]\w|sanitize/i,
+    'rate-limiting': /rateLimit|rateLimiter|rate[_-]limit|limiter\.consume|checkRateLimit/i,
+    'size-limit': /limits\s*:\s*\{|fileSize|maxFileSize|bodyLimit/i,
+    'content-type': /content[_-]?[Tt]ype|mimetype|fileFilter/i,
+};
+// ─── Snippet Extractor ────────────────────────────────────────────────────────
+// Given a source string and the character index of a regex match, returns
+// the matched line text and its 1-based line number within the source fragment.
+function extractSnippet(source, matchIndex) {
+    const lines = source.split('\n');
+    const lineNumber = source.substring(0, matchIndex).split('\n').length;
+    return {
+        code: (lines[lineNumber - 1] ?? '').trim(),
+        line: lineNumber,
+    };
+}
+// ─── Source Scanner ───────────────────────────────────────────────────────────
+// Scans a single source fragment for all guard types.
+// `lineOffset` converts fragment-relative line numbers to file-level line numbers.
+function scanSource(source, file, lineOffset) {
+    const guards = [];
+    for (const [type, pattern] of Object.entries(GUARD_PATTERNS)) {
+        const match = pattern.exec(source);
+        if (!match)
+            continue;
+        const { code, line } = extractSnippet(source, match.index);
+        guards.push({ type, code, file, line: line + lineOffset });
+    }
+    return guards;
+}
+// ─── Main Export ──────────────────────────────────────────────────────────────
+function detectGuards(entryPoint, callChain, codeSlice) {
+    const raw = [];
+    if (entryPoint) {
+        // handlerStartLine is 1-based, so offset = startLine - 1
+        raw.push(...scanSource(entryPoint.handlerSource, entryPoint.handlerFile, entryPoint.handlerStartLine - 1));
+    }
+    for (const step of callChain) {
+        raw.push(...scanSource(step.sourceText, step.file, step.startLine - 1));
+    }
+    for (const caller of codeSlice.callerSlices) {
+        raw.push(...scanSource(caller.sourceText, caller.file, caller.startLine - 1));
+    }
+    // Deduplicate: same guard type at the same location (same file + line) should
+    // not be reported twice even if it was found in overlapping source fragments.
+    const seen = new Set();
+    const guards = raw.filter(g => {
+        const key = `${g.type}:${g.file}:${g.line}`;
+        if (seen.has(key))
+            return false;
+        seen.add(key);
+        return true;
+    });
+    return {
+        hasAuthentication: guards.some(g => g.type === 'authentication' || g.type === 'authorization'),
+        hasInputValidation: guards.some(g => g.type === 'input-validation'),
+        guards,
+    };
 }
 
 
@@ -42179,15 +42778,13 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.generateRemediationQueue = generateRemediationQueue;
 const core = __importStar(__nccwpck_require__(37484));
-function generateRemediationQueue(assessedThreats) {
+function generateRemediationQueue(threats) {
     core.info('Component 6: Waking up Remediation Queue...');
-    if (assessedThreats.length === 0) {
+    if (threats.length === 0) {
         core.info('Queue empty. No remediation required.');
         return [];
     }
-    // Sort descending by priorityScore (set by Deployment Classifier).
-    // Severity is the primary key; prod/dev is the tiebreaker within the same severity.
-    const sortedThreats = [...assessedThreats].sort((a, b) => b.priorityScore - a.priorityScore);
+    const sortedThreats = [...threats].sort((a, b) => b.priorityScore - a.priorityScore);
     core.info('=========================================');
     core.info('         FINAL REMEDIATION QUEUE         ');
     core.info('=========================================');
@@ -42264,28 +42861,22 @@ function filterAdvisories(advisories, thresholdInput, installedPackages) {
     }
     const filtered = advisories.filter(adv => {
         const packageName = adv.packageName?.toLowerCase() ?? '';
-        // --- Gate 1: severity threshold ---
+        // Gate 1: severity threshold
         const advWeight = severityWeights[adv.severity?.toUpperCase()] ?? 0;
         if (advWeight < targetWeight)
             return false;
-        // --- Gate 2: package present in this repo ---
-        // The SBOM covers all ecosystems completely, so a single Map lookup suffices.
+        // Gate 2: package present in this repo (SBOM covers all ecosystems, single Map lookup suffices)
         if (installedPackages.size > 0 && !installedPackages.has(packageName))
             return false;
-        // --- Gate 3: installed version is within the vulnerable range (npm only) ---
-        // semver parsing is only reliable for npm/cargo; other ecosystems use
-        // different versioning schemes. Skipped when no version is available
-        // (safe: keeps the advisory).
+        // Gate 3: installed version falls within the vulnerable range — npm only
+        // semver is reliable only for npm; other ecosystems use incompatible versioning schemes
         if (adv.ecosystem === 'npm' && adv.vulnerableVersionRange) {
             const installedVersion = installedPackages.get(packageName);
             if (installedVersion) {
-                // GitHub Advisory uses commas as range separators; semver expects spaces.
                 const range = adv.vulnerableVersionRange.replace(/,\s*/g, ' ');
-                if ((0, semver_1.validRange)(range)) {
-                    if (!(0, semver_1.satisfies)(installedVersion, range)) {
-                        core.info(`  [skip] ${adv.packageName}@${installedVersion} is not in vulnerable range "${adv.vulnerableVersionRange}"`);
-                        return false;
-                    }
+                if ((0, semver_1.validRange)(range) && !(0, semver_1.satisfies)(installedVersion, range)) {
+                    core.info(`  [skip] ${adv.packageName}@${installedVersion} is not in vulnerable range "${adv.vulnerableVersionRange}"`);
+                    return false;
                 }
             }
         }
@@ -42347,8 +42938,11 @@ const vulnerability_filter_1 = __nccwpck_require__(7213);
 const deployment_classifier_1 = __nccwpck_require__(78127);
 const remediation_queue_1 = __nccwpck_require__(89331);
 const ast_analyzer_1 = __nccwpck_require__(19999);
-// Advisory state is cached between runs — skip the pipeline when the global
-// advisory feed has not changed since the last hourly scan.
+const entry_point_detector_1 = __nccwpck_require__(85367);
+const call_chain_builder_1 = __nccwpck_require__(9285);
+const guard_detector_1 = __nccwpck_require__(78681);
+// Advisory IDs are cached between runs — skip the pipeline when the feed has not
+// changed since the last hourly scan.
 const STATE_FILE = '/tmp/vultool-advisory-state.json';
 const CACHE_KEY = `vultool-advisory-state-${process.env.GITHUB_REPOSITORY ?? 'local'}`;
 async function loadLastSeenGhsaIds() {
@@ -42385,7 +42979,7 @@ async function main() {
         core.info(`  Threshold  : ${threshold}`);
         core.info('');
         // --- COMPONENT 1: ECOSYSTEM DETECTOR ---
-        const { ecosystems: detectedEcosystems } = await (0, ecosystem_detector_1.detectEcosystems)(workspacePath);
+        const { ecosystems: detectedEcosystems } = (0, ecosystem_detector_1.detectEcosystems)(workspacePath);
         if (detectedEcosystems.length === 0) {
             core.info('No ecosystems detected. Exiting successfully.');
             return;
@@ -42398,10 +42992,8 @@ async function main() {
             return;
         }
         // --- ADVISORY SKIP CHECK ---
-        // If the GHSA ID set is identical to the last run, no new advisories have
-        // been published — skip the heavy pipeline and wait for the next hourly scan.
         const lastSeenIds = await loadLastSeenGhsaIds();
-        const currentIds = new Set(rawAdvisories.map((a) => a.ghsaId));
+        const currentIds = new Set(rawAdvisories.map(a => a.ghsaId));
         const hasNewIds = lastSeenIds.size === 0 || [...currentIds].some(id => !lastSeenIds.has(id));
         if (!hasNewIds) {
             core.info('');
@@ -42419,21 +43011,21 @@ async function main() {
         }
         // --- COMPONENT 4: VULNERABILITY FILTER ---
         core.info('');
-        const finalThreats = (0, vulnerability_filter_1.filterAdvisories)(rawAdvisories, threshold, installedPackages);
-        if (finalThreats.length === 0) {
+        const confirmedAdvisories = (0, vulnerability_filter_1.filterAdvisories)(rawAdvisories, threshold, installedPackages);
+        if (confirmedAdvisories.length === 0) {
             core.info('No matching vulnerabilities found in this repository.');
             await saveSeenGhsaIds(currentIds);
             return;
         }
         // --- COMPONENT 5: DEPLOYMENT CLASSIFIER ---
         core.info('');
-        const contextualizedThreats = (0, deployment_classifier_1.classifyDeploymentContext)(finalThreats, workspacePath, detectedEcosystems);
+        const contextualizedThreats = (0, deployment_classifier_1.classifyDeploymentContext)(confirmedAdvisories, workspacePath, detectedEcosystems);
         // --- COMPONENT 6: REMEDIATION QUEUE ---
         core.info('');
         const sortedThreats = (0, remediation_queue_1.generateRemediationQueue)(contextualizedThreats);
         // --- COMPONENT 7: AST ANALYZER (npm threats only) ---
         core.info('');
-        const npmThreats = sortedThreats.filter((t) => t.ecosystem === 'npm');
+        const npmThreats = sortedThreats.filter(t => t.ecosystem === 'npm');
         let codeSlices = [];
         if (npmThreats.length > 0) {
             codeSlices = await (0, ast_analyzer_1.analyzeCodeUsage)(npmThreats, workspacePath);
@@ -42441,7 +43033,30 @@ async function main() {
         else {
             core.info('Component 7: No npm threats in queue — AST analysis skipped.');
         }
-        // Persist the current advisory set so the next hourly run can compare against it.
+        // --- COMPONENT 8: PURPLE TEAM CONTEXT (tree-sitter) ---
+        core.info('');
+        if (codeSlices.length > 0) {
+            core.info('Component 8: Waking up Purple Team Context Analyzer (tree-sitter)...');
+            for (const slice of codeSlices) {
+                core.info(`  Analyzing: ${slice.packageName}`);
+                const entryPoint = await (0, entry_point_detector_1.detectEntryPoint)(slice.callerSlices, workspacePath);
+                core.info(`  Entry point   : ${entryPoint ? entryPoint.identifier : 'not found'}`);
+                if (entryPoint) {
+                    core.info(`  Framework     : ${entryPoint.framework ?? 'unknown'}`);
+                    core.info(`  Handler fn    : ${entryPoint.handlerFunction}`);
+                    core.info(`  Attack surface: ${entryPoint.attackableSurface.join(', ') || 'none detected'}`);
+                }
+                const callChain = await (0, call_chain_builder_1.buildCallChain)(entryPoint, slice, workspacePath);
+                core.info(`  Call chain    : ${callChain.length === 0 ? 'direct (no intermediates)' : callChain.map(s => s.functionName).join(' → ')}`);
+                const guards = (0, guard_detector_1.detectGuards)(entryPoint, callChain, slice);
+                core.info(`  Guards found  : ${guards.guards.length === 0 ? 'none' : guards.guards.map(g => g.type).join(', ')}`);
+                core.info(`  Has auth      : ${guards.hasAuthentication}`);
+                core.info(`  Has validation: ${guards.hasInputValidation}`);
+            }
+        }
+        else {
+            core.info('Component 8: No code slices to analyze — purple team skipped.');
+        }
         await saveSeenGhsaIds(currentIds);
         core.info('');
         core.info('=========================================');
