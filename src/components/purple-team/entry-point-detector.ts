@@ -301,6 +301,49 @@ function findSourceFiles(workspacePath: string): string[] {
   return results;
 }
 
+// ─── Upstream Caller Discovery ────────────────────────────────────────────────
+
+// Returns names of functions (one hop up) whose body contains a call to any
+// name in `callerNames`.  Handles the common pattern where a route handler
+// delegates to a service function that then calls the EIF caller — without
+// this the entry-point search would miss routes that don't mention the EIF
+// caller directly.
+function findParentCallers(
+  callerNames: Set<string>,
+  files: string[],
+): Set<string> {
+  const parents = new Set<string>();
+
+  if (!parser || !jsLanguage) return parents;
+
+  for (const file of files) {
+    let source: string;
+    try { source = fs.readFileSync(file, 'utf8'); } catch { continue; }
+    if (![...callerNames].some(name => source.includes(name))) continue;
+
+    parser.setLanguage(jsLanguage);
+    const tree = parser.parse(source);
+
+    for (const fn of tree.rootNode.descendantsOfType('function_declaration')) {
+      const fnName = fn.childForFieldName('name')?.text;
+      if (!fnName || callerNames.has(fnName)) continue;
+      if ([...callerNames].some(name => fn.text.includes(name))) parents.add(fnName);
+    }
+
+    for (const decl of tree.rootNode.descendantsOfType('variable_declarator')) {
+      const id    = decl.childForFieldName('name');
+      const value = decl.childForFieldName('value');
+      if (!id || !value) continue;
+      if (value.type !== 'arrow_function' && value.type !== 'function_expression') continue;
+      const fnName = id.text;
+      if (callerNames.has(fnName)) continue;
+      if ([...callerNames].some(name => value.text.includes(name))) parents.add(fnName);
+    }
+  }
+
+  return parents;
+}
+
 // ─── Main Export ──────────────────────────────────────────────────────────────
 
 export async function detectEntryPoint(
@@ -324,13 +367,18 @@ export async function detectEntryPoint(
   const queueFw       = resolveQueueFramework(deps);
   const files         = findSourceFiles(workspacePath);
 
+  // Expand the search set with functions that call our EIF callers directly —
+  // covers the route → service → EIF caller indirection pattern.
+  const parentCallers = findParentCallers(callerNames, files);
+  const searchNames   = new Set([...callerNames, ...parentCallers]);
+
   // Priority: HTTP is checked first — it is the most accessible surface
   // for an external attacker and the most common in web applications.
   return (
-    findHttpEntryPoint(callerNames, files, httpFramework) ??
-    findWsEntryPoint(callerNames, files, wsFramework)     ??
-    findQueueEntryPoint(callerNames, files, queueFw)      ??
-    findCronEntryPoint(callerNames, files)                ??
+    findHttpEntryPoint(searchNames, files, httpFramework) ??
+    findWsEntryPoint(searchNames, files, wsFramework)     ??
+    findQueueEntryPoint(searchNames, files, queueFw)      ??
+    findCronEntryPoint(searchNames, files)                ??
     null
   );
 }
