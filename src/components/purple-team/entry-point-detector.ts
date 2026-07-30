@@ -303,31 +303,23 @@ function findSourceFiles(workspacePath: string): string[] {
 
 // ─── Upstream Caller Discovery ────────────────────────────────────────────────
 
-// Returns names of functions (one hop up) whose body contains a call to any
-// name in `callerNames`.  Handles the common pattern where a route handler
-// delegates to a service function that then calls the EIF caller — without
-// this the entry-point search would miss routes that don't mention the EIF
-// caller directly.
-function findParentCallers(
-  callerNames: Set<string>,
-  files: string[],
-): Set<string> {
+// Single-pass: returns function names whose body directly calls any name in `targets`.
+function findDirectParents(targets: Set<string>, files: string[]): Set<string> {
   const parents = new Set<string>();
-
   if (!parser || !jsLanguage) return parents;
 
   for (const file of files) {
     let source: string;
     try { source = fs.readFileSync(file, 'utf8'); } catch { continue; }
-    if (![...callerNames].some(name => source.includes(name))) continue;
+    if (![...targets].some(name => source.includes(name))) continue;
 
     parser.setLanguage(jsLanguage);
     const tree = parser.parse(source);
 
     for (const fn of tree.rootNode.descendantsOfType('function_declaration')) {
       const fnName = fn.childForFieldName('name')?.text;
-      if (!fnName || callerNames.has(fnName)) continue;
-      if ([...callerNames].some(name => fn.text.includes(name))) parents.add(fnName);
+      if (!fnName || targets.has(fnName)) continue;
+      if ([...targets].some(name => fn.text.includes(name))) parents.add(fnName);
     }
 
     for (const decl of tree.rootNode.descendantsOfType('variable_declarator')) {
@@ -336,12 +328,40 @@ function findParentCallers(
       if (!id || !value) continue;
       if (value.type !== 'arrow_function' && value.type !== 'function_expression') continue;
       const fnName = id.text;
-      if (callerNames.has(fnName)) continue;
-      if ([...callerNames].some(name => value.text.includes(name))) parents.add(fnName);
+      if (targets.has(fnName)) continue;
+      if ([...targets].some(name => value.text.includes(name))) parents.add(fnName);
     }
   }
 
   return parents;
+}
+
+// BFS upward from the EIF callers through the call graph, up to `maxDepth` hops.
+// Collects every function that transitively calls the EIF caller so the route
+// search can match any level of indirection (route → controller → service → EIF caller).
+const PARENT_SEARCH_MAX_DEPTH = 8;
+
+function findParentCallers(
+  callerNames: Set<string>,
+  files: string[],
+): Set<string> {
+  const allParents = new Set<string>();
+  let frontier = callerNames;
+
+  for (let depth = 0; depth < PARENT_SEARCH_MAX_DEPTH; depth++) {
+    const newParents = findDirectParents(frontier, files);
+
+    // Remove anything already in our known sets to prevent cycles
+    for (const known of allParents) newParents.delete(known);
+    for (const known of callerNames) newParents.delete(known);
+
+    if (newParents.size === 0) break;
+
+    for (const p of newParents) allParents.add(p);
+    frontier = newParents;
+  }
+
+  return allParents;
 }
 
 // ─── Main Export ──────────────────────────────────────────────────────────────

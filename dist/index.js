@@ -42730,12 +42730,8 @@ function findSourceFiles(workspacePath) {
     return results;
 }
 // ─── Upstream Caller Discovery ────────────────────────────────────────────────
-// Returns names of functions (one hop up) whose body contains a call to any
-// name in `callerNames`.  Handles the common pattern where a route handler
-// delegates to a service function that then calls the EIF caller — without
-// this the entry-point search would miss routes that don't mention the EIF
-// caller directly.
-function findParentCallers(callerNames, files) {
+// Single-pass: returns function names whose body directly calls any name in `targets`.
+function findDirectParents(targets, files) {
     const parents = new Set();
     if (!parser || !jsLanguage)
         return parents;
@@ -42747,15 +42743,15 @@ function findParentCallers(callerNames, files) {
         catch {
             continue;
         }
-        if (![...callerNames].some(name => source.includes(name)))
+        if (![...targets].some(name => source.includes(name)))
             continue;
         parser.setLanguage(jsLanguage);
         const tree = parser.parse(source);
         for (const fn of tree.rootNode.descendantsOfType('function_declaration')) {
             const fnName = fn.childForFieldName('name')?.text;
-            if (!fnName || callerNames.has(fnName))
+            if (!fnName || targets.has(fnName))
                 continue;
-            if ([...callerNames].some(name => fn.text.includes(name)))
+            if ([...targets].some(name => fn.text.includes(name)))
                 parents.add(fnName);
         }
         for (const decl of tree.rootNode.descendantsOfType('variable_declarator')) {
@@ -42766,13 +42762,35 @@ function findParentCallers(callerNames, files) {
             if (value.type !== 'arrow_function' && value.type !== 'function_expression')
                 continue;
             const fnName = id.text;
-            if (callerNames.has(fnName))
+            if (targets.has(fnName))
                 continue;
-            if ([...callerNames].some(name => value.text.includes(name)))
+            if ([...targets].some(name => value.text.includes(name)))
                 parents.add(fnName);
         }
     }
     return parents;
+}
+// BFS upward from the EIF callers through the call graph, up to `maxDepth` hops.
+// Collects every function that transitively calls the EIF caller so the route
+// search can match any level of indirection (route → controller → service → EIF caller).
+const PARENT_SEARCH_MAX_DEPTH = 8;
+function findParentCallers(callerNames, files) {
+    const allParents = new Set();
+    let frontier = callerNames;
+    for (let depth = 0; depth < PARENT_SEARCH_MAX_DEPTH; depth++) {
+        const newParents = findDirectParents(frontier, files);
+        // Remove anything already in our known sets to prevent cycles
+        for (const known of allParents)
+            newParents.delete(known);
+        for (const known of callerNames)
+            newParents.delete(known);
+        if (newParents.size === 0)
+            break;
+        for (const p of newParents)
+            allParents.add(p);
+        frontier = newParents;
+    }
+    return allParents;
 }
 // ─── Main Export ──────────────────────────────────────────────────────────────
 async function detectEntryPoint(callerSlices, workspacePath) {
@@ -43213,7 +43231,13 @@ async function main() {
                 core.info(`  EIF caller(s) : ${ctx.codeSlice.callerSlices.map(c => `${c.functionName} (${c.file}:${c.startLine})`).join(', ')}`);
                 core.info(`  EIF call site : ${ctx.codeSlice.eifCallSites.map(s => `${s.callExpression} (line ${s.line})`).join(', ')}`);
                 if (ctx.entryPoint) {
-                    const chain = [ctx.entryPoint.handlerFunction, ...ctx.callChain.map(s => s.functionName), ...ctx.codeSlice.callerSlices.map(s => s.functionName)];
+                    const eifFnName = ctx.codeSlice.eifCallSites[0]?.callExpression.split('(')[0]?.trim() ?? ctx.threat.packageName;
+                    const chain = [
+                        ctx.entryPoint.handlerFunction,
+                        ...ctx.callChain.map(s => s.functionName),
+                        ...ctx.codeSlice.callerSlices.map(s => s.functionName),
+                        `${eifFnName} (${ctx.threat.packageName})`,
+                    ];
                     core.info(`  Attack path   : ${ctx.entryPoint.identifier} → ${chain.join(' → ')}`);
                     core.info(`  Attack surface: ${ctx.entryPoint.attackableSurface.join(', ')}`);
                 }

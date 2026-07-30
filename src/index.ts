@@ -162,7 +162,13 @@ async function main() {
         core.info(`  EIF caller(s) : ${ctx.codeSlice.callerSlices.map(c => `${c.functionName} (${c.file}:${c.startLine})`).join(', ')}`);
         core.info(`  EIF call site : ${ctx.codeSlice.eifCallSites.map(s => `${s.callExpression} (line ${s.line})`).join(', ')}`);
         if (ctx.entryPoint) {
-          const chain = [ctx.entryPoint.handlerFunction, ...ctx.callChain.map(s => s.functionName), ...ctx.codeSlice.callerSlices.map(s => s.functionName)];
+          const eifFnName = ctx.codeSlice.eifCallSites[0]?.callExpression.split('(')[0]?.trim() ?? ctx.threat.packageName;
+          const chain = [
+            ctx.entryPoint.handlerFunction,
+            ...ctx.callChain.map(s => s.functionName),
+            ...ctx.codeSlice.callerSlices.map(s => s.functionName),
+            `${eifFnName} (${ctx.threat.packageName})`,
+          ];
           core.info(`  Attack path   : ${ctx.entryPoint.identifier} → ${chain.join(' → ')}`);
           core.info(`  Attack surface: ${ctx.entryPoint.attackableSurface.join(', ')}`);
         } else {
