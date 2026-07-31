@@ -41111,10 +41111,10 @@ async function fetchRecentAdvisories(token, ecosystems) {
                 core.warning(`Unknown ecosystem for GraphQL: ${eco}`);
                 continue;
             }
-            core.info(`Fetching latest 10 advisories for ecosystem: ${graphqlEnum}...`);
+            core.info(`Fetching latest 20 advisories for ecosystem: ${graphqlEnum}...`);
             const query = `
         query($ecosystem: SecurityAdvisoryEcosystem) {
-          securityVulnerabilities(first: 10, ecosystem: $ecosystem, orderBy: {field: UPDATED_AT, direction: DESC}) {
+          securityVulnerabilities(first: 20, ecosystem: $ecosystem, orderBy: {field: UPDATED_AT, direction: DESC}) {
             nodes {
               severity
               vulnerableVersionRange
