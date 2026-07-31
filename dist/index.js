@@ -41560,6 +41560,8 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.getRepositoryDependencies = getRepositoryDependencies;
 const core = __importStar(__nccwpck_require__(37484));
 const github = __importStar(__nccwpck_require__(93228));
+const fs = __importStar(__nccwpck_require__(79896));
+const path = __importStar(__nccwpck_require__(16928));
 const PURL_TYPE_MAP = {
     npm: 'npm',
     pypi: 'pip',
@@ -41595,17 +41597,47 @@ function parsePurl(purl) {
     }
     return { name: name.toLowerCase(), version };
 }
+// Parses package-lock.json from the workspace to catch npm packages that are on the
+// current branch but not yet reflected in the GitHub Dependency Graph (which always
+// reads the default branch). Supports lockfile v1 (dependencies) and v2/v3 (packages).
+function parseLocalNpmPackages(workspacePath) {
+    const result = new Map();
+    const lockfilePath = path.join(workspacePath, 'package-lock.json');
+    if (!fs.existsSync(lockfilePath))
+        return result;
+    try {
+        const lockfile = JSON.parse(fs.readFileSync(lockfilePath, 'utf8'));
+        if (lockfile.packages) {
+            for (const [key, value] of Object.entries(lockfile.packages)) {
+                if (key === '')
+                    continue;
+                // Strip leading "node_modules/" segments (handles nested hoisting paths)
+                const name = key.replace(/^(?:.*node_modules\/)/, '').toLowerCase();
+                if (value.version)
+                    result.set(name, value.version);
+            }
+        }
+        else if (lockfile.dependencies) {
+            for (const [name, value] of Object.entries(lockfile.dependencies)) {
+                if (value.version)
+                    result.set(name.toLowerCase(), value.version);
+            }
+        }
+    }
+    catch { /* malformed lockfile — skip */ }
+    return result;
+}
 // Uses the SBOM endpoint instead of the GraphQL Dependency Graph: the GraphQL preview
 // API caps results at 100 packages per manifest with no pagination path (manifest
 // objects omit node IDs in the preview schema, making cursor-based pagination impossible).
 // Returns null on failure — the pipeline halts rather than producing false negatives.
 // ⚠ This sync endpoint is deprecated and scheduled for removal on 2026-11-13.
-async function getRepositoryDependencies(token) {
+async function getRepositoryDependencies(token, workspacePath) {
     const octokit = github.getOctokit(token);
     const { owner, repo } = github.context.repo;
     try {
         core.info(`Component 3: Waking up Dependency Mapper for ${owner}/${repo}...`);
-        core.info('  Source: GitHub Dependency Graph SBOM export');
+        core.info('  Source: GitHub Dependency Graph SBOM (cross-ecosystem) + local workspace lockfiles (current branch)');
         const response = await octokit.request('GET /repos/{owner}/{repo}/dependency-graph/sbom', {
             owner,
             repo,
@@ -41624,7 +41656,16 @@ async function getRepositoryDependencies(token) {
                 continue;
             installedPackages.set(parsed.name, parsed.version);
         }
-        core.info(`  Mapped ${installedPackages.size} installed package(s) across all ecosystems.`);
+        // Merge local lockfile — covers npm packages on the current branch that the
+        // SBOM hasn't indexed yet (SBOM always reflects the default branch).
+        const localPackages = parseLocalNpmPackages(workspacePath);
+        let localOnly = 0;
+        for (const [name, version] of localPackages) {
+            if (!installedPackages.has(name))
+                localOnly++;
+            installedPackages.set(name, version);
+        }
+        core.info(`  Mapped ${installedPackages.size} installed package(s) (${localOnly} npm package(s) added from local workspace lockfile).`);
         return installedPackages;
     }
     catch (error) {
@@ -43167,7 +43208,7 @@ async function main() {
         core.info(`  ${newCount} new advisory ID(s) since last scan — proceeding with full pipeline.`);
         // --- COMPONENT 3: DEPENDENCY MAPPER ---
         core.info('');
-        const installedPackages = await (0, dependency_mapper_1.getRepositoryDependencies)(token);
+        const installedPackages = await (0, dependency_mapper_1.getRepositoryDependencies)(token, workspacePath);
         if (installedPackages === null) {
             core.error('CRITICAL PIPELINE HALT: Dependency Mapper failed. Check that the GitHub Dependency Graph is enabled for this repository.');
             return;

@@ -87,7 +87,7 @@ async function main() {
 
     // --- COMPONENT 3: DEPENDENCY MAPPER ---
     core.info('');
-    const installedPackages = await getRepositoryDependencies(token);
+    const installedPackages = await getRepositoryDependencies(token, workspacePath);
     if (installedPackages === null) {
       core.error('CRITICAL PIPELINE HALT: Dependency Mapper failed. Check that the GitHub Dependency Graph is enabled for this repository.');
       return;
