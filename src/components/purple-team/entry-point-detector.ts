@@ -133,6 +133,17 @@ function findHttpEntryPoint(
       const matchedCaller = [...callerNames].find(name => handlerSource.includes(name));
       if (!matchedCaller) continue;
 
+      // When the handler is an identifier reference (not inline), its text is just
+      // the function name — not the body. Look up the actual declaration in the same
+      // file so extractAttackableSurface can see req.body / req.params / etc.
+      let surfaceSource = handlerSource;
+      if (handlerNode.type === 'identifier') {
+        const fnDecl = tree.rootNode.descendantsOfType('function_declaration').find(
+          fn => fn.childForFieldName('name')?.text === handlerNode.text,
+        );
+        if (fnDecl) surfaceSource = fnDecl.text;
+      }
+
       return {
         type:             'http-route',
         identifier:       `${method.toUpperCase()} ${routePath || '/'}`,
@@ -141,7 +152,7 @@ function findHttpEntryPoint(
         handlerFile:      file,
         handlerStartLine: handlerNode.startPosition.row + 1,
         handlerSource,
-        attackableSurface: extractAttackableSurface(handlerSource),
+        attackableSurface: extractAttackableSurface(surfaceSource),
       };
     }
   }

@@ -42610,6 +42610,15 @@ function findHttpEntryPoint(callerNames, files, framework) {
             const matchedCaller = [...callerNames].find(name => handlerSource.includes(name));
             if (!matchedCaller)
                 continue;
+            // When the handler is an identifier reference (not inline), its text is just
+            // the function name — not the body. Look up the actual declaration in the same
+            // file so extractAttackableSurface can see req.body / req.params / etc.
+            let surfaceSource = handlerSource;
+            if (handlerNode.type === 'identifier') {
+                const fnDecl = tree.rootNode.descendantsOfType('function_declaration').find(fn => fn.childForFieldName('name')?.text === handlerNode.text);
+                if (fnDecl)
+                    surfaceSource = fnDecl.text;
+            }
             return {
                 type: 'http-route',
                 identifier: `${method.toUpperCase()} ${routePath || '/'}`,
@@ -42618,7 +42627,7 @@ function findHttpEntryPoint(callerNames, files, framework) {
                 handlerFile: file,
                 handlerStartLine: handlerNode.startPosition.row + 1,
                 handlerSource,
-                attackableSurface: extractAttackableSurface(handlerSource),
+                attackableSurface: extractAttackableSurface(surfaceSource),
             };
         }
     }
@@ -43278,10 +43287,21 @@ async function main() {
                 core.info(`  EIF call site : ${ctx.codeSlice.eifCallSites.map(s => `${s.callExpression} (line ${s.line})`).join(', ')}`);
                 if (ctx.entryPoint) {
                     const eifFnName = ctx.codeSlice.eifCallSites[0]?.callExpression.split('(')[0]?.trim() ?? ctx.threat.packageName;
+                    // Sort EIF callers so that a caller whose body contains another caller's name
+                    // comes first — this reconstructs the correct topological call order.
+                    const sortedEifCallers = [...ctx.codeSlice.callerSlices]
+                        .sort((a, b) => {
+                        if (a.sourceText.includes(b.functionName))
+                            return -1;
+                        if (b.sourceText.includes(a.functionName))
+                            return 1;
+                        return 0;
+                    })
+                        .map(s => s.functionName);
                     const chain = [
                         ctx.entryPoint.handlerFunction,
                         ...ctx.callChain.map(s => s.functionName),
-                        ...ctx.codeSlice.callerSlices.map(s => s.functionName),
+                        ...sortedEifCallers,
                         `${eifFnName} (${ctx.threat.packageName})`,
                     ];
                     core.info(`  Attack path   : ${ctx.entryPoint.identifier} → ${chain.join(' → ')}`);

@@ -168,10 +168,19 @@ async function main() {
         core.info(`  EIF call site : ${ctx.codeSlice.eifCallSites.map(s => `${s.callExpression} (line ${s.line})`).join(', ')}`);
         if (ctx.entryPoint) {
           const eifFnName = ctx.codeSlice.eifCallSites[0]?.callExpression.split('(')[0]?.trim() ?? ctx.threat.packageName;
+          // Sort EIF callers so that a caller whose body contains another caller's name
+          // comes first — this reconstructs the correct topological call order.
+          const sortedEifCallers = [...ctx.codeSlice.callerSlices]
+            .sort((a, b) => {
+              if (a.sourceText.includes(b.functionName)) return -1;
+              if (b.sourceText.includes(a.functionName)) return 1;
+              return 0;
+            })
+            .map(s => s.functionName);
           const chain = [
             ctx.entryPoint.handlerFunction,
             ...ctx.callChain.map(s => s.functionName),
-            ...ctx.codeSlice.callerSlices.map(s => s.functionName),
+            ...sortedEifCallers,
             `${eifFnName} (${ctx.threat.packageName})`,
           ];
           core.info(`  Attack path   : ${ctx.entryPoint.identifier} → ${chain.join(' → ')}`);
