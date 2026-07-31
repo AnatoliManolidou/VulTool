@@ -123,12 +123,17 @@ async function main() {
 
     // --- COMPONENT 8: PURPLE TEAM CONTEXT (tree-sitter) ---
     core.info('');
+    // Populated by C8; consumed by C9 Prompt Builder → LLM Call → Risk Scorer (not yet implemented)
     const exploitContexts: ExploitContext[] = [];
 
     if (codeSlices.length > 0) {
       core.info('Component 8: Waking up Purple Team Context Analyzer (tree-sitter)...');
       for (const slice of codeSlices) {
-        const threat = sortedThreats.find(t => t.ghsaId === slice.threatGhsaId)!;
+        const threat = sortedThreats.find(t => t.ghsaId === slice.threatGhsaId);
+        if (!threat) {
+          core.warning(`No threat found for code slice ${slice.threatGhsaId} — skipping.`);
+          continue;
+        }
         core.info(`  Analyzing: ${slice.packageName}`);
 
         const entryPoint = await detectEntryPoint(slice.callerSlices, workspacePath);
