@@ -30,11 +30,11 @@ export async function fetchRecentAdvisories(token: string, ecosystems: string[])
         continue;
       }
 
-      core.info(`Fetching latest 25 advisories for ecosystem: ${graphqlEnum}...`);
+      core.info(`Fetching latest 50 advisories for ecosystem: ${graphqlEnum}...`);
 
       const query = `
         query($ecosystem: SecurityAdvisoryEcosystem) {
-          securityVulnerabilities(first: 25, ecosystem: $ecosystem, orderBy: {field: UPDATED_AT, direction: DESC}) {
+          securityVulnerabilities(first: 50, ecosystem: $ecosystem, orderBy: {field: UPDATED_AT, direction: DESC}) {
             nodes {
               severity
               vulnerableVersionRange
