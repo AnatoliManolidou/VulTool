@@ -43041,7 +43041,7 @@ async function callLLM(apiKey, prompt) {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                model: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+                model: 'nvidia/nemotron-3-nano-30b-a3b:free',
                 messages: [{ role: 'user', content: prompt }],
             }),
             signal: controller.signal,
