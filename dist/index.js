@@ -43037,7 +43037,7 @@ async function callLLM(apiKey, prompt) {
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-            model: 'nvidia/nemotron-3-nano-omni:free',
+            model: 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
             messages: [{ role: 'user', content: prompt }],
         }),
     });
