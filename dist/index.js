@@ -44570,7 +44570,7 @@ exports.callLLM = callLLM;
 const generative_ai_1 = __nccwpck_require__(97656);
 async function callLLM(apiKey, prompt) {
     const genAI = new generative_ai_1.GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
     const result = await model.generateContent(prompt);
     return result.response.text();
 }
