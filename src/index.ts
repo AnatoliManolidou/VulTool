@@ -44,8 +44,12 @@ async function saveSeenGhsaIds(ids: Set<string>): Promise<void> {
 
 async function main() {
   try {
-    const token     = core.getInput('github_token', { required: true });
-    const threshold = core.getInput('severity_threshold');
+    const token          = core.getInput('github_token', { required: true });
+    const threshold      = core.getInput('severity_threshold');
+    const watchedGhsaRaw = core.getInput('watched_ghsa_ids');
+    const watchedGhsaIds = watchedGhsaRaw
+      ? watchedGhsaRaw.split(',').map(s => s.trim()).filter(Boolean)
+      : [];
     core.setSecret(token);
 
     const repoName      = process.env.GITHUB_REPOSITORY ?? 'unknown/unknown';
@@ -67,7 +71,7 @@ async function main() {
 
     // --- COMPONENT 2: ALERT FETCHER ---
     core.info('');
-    const rawAdvisories: Advisory[] = await fetchRecentAdvisories(token, detectedEcosystems);
+    const rawAdvisories: Advisory[] = await fetchRecentAdvisories(token, detectedEcosystems, watchedGhsaIds);
     if (rawAdvisories.length === 0) {
       core.info('No recent advisories found. Exiting successfully.');
       return;

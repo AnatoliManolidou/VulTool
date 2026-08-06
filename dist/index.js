@@ -42625,79 +42625,152 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.fetchRecentAdvisories = fetchRecentAdvisories;
 const core = __importStar(__nccwpck_require__(37484));
 const github = __importStar(__nccwpck_require__(93228));
-async function fetchRecentAdvisories(token, ecosystems) {
-    const octokit = github.getOctokit(token);
-    const allAdvisories = [];
-    const ecosystemMap = {
-        'npm': 'NPM',
-        'pip': 'PIP',
-        'rubygems': 'RUBYGEMS',
-        'go': 'GO',
-        'crates': 'RUST',
-        'maven': 'MAVEN',
-        'nuget': 'NUGET',
-        'composer': 'COMPOSER',
-        'swift': 'SWIFT',
-        'pub': 'PUB',
-        'erlang': 'ERLANG',
-    };
-    try {
-        core.info('Component 2: Waking up Alert Fetcher...');
-        for (const eco of ecosystems) {
-            const graphqlEnum = ecosystemMap[eco];
-            if (!graphqlEnum) {
-                core.warning(`Unknown ecosystem for GraphQL: ${eco}`);
-                continue;
+const ECOSYSTEM_MAP = {
+    'npm': 'NPM',
+    'pip': 'PIP',
+    'rubygems': 'RUBYGEMS',
+    'go': 'GO',
+    'crates': 'RUST',
+    'maven': 'MAVEN',
+    'nuget': 'NUGET',
+    'composer': 'COMPOSER',
+    'swift': 'SWIFT',
+    'pub': 'PUB',
+    'erlang': 'ERLANG',
+};
+// ─── Live Feed ────────────────────────────────────────────────────────────────
+async function fetchFeedAdvisories(octokit, ecosystems) {
+    const results = [];
+    for (const eco of ecosystems) {
+        const graphqlEnum = ECOSYSTEM_MAP[eco];
+        if (!graphqlEnum) {
+            core.warning(`Unknown ecosystem for GraphQL: ${eco}`);
+            continue;
+        }
+        core.info(`Fetching latest 25 advisories for ecosystem: ${graphqlEnum}...`);
+        const query = `
+      query($ecosystem: SecurityAdvisoryEcosystem) {
+        securityVulnerabilities(first: 25, ecosystem: $ecosystem, orderBy: {field: UPDATED_AT, direction: DESC}) {
+          nodes {
+            severity
+            vulnerableVersionRange
+            firstPatchedVersion { identifier }
+            package { name }
+            advisory {
+              ghsaId
+              summary
+              description
+              cwes(first: 10) { nodes { cweId name } }
+              cvss { score vectorString }
             }
-            core.info(`Fetching latest 50 advisories for ecosystem: ${graphqlEnum}...`);
-            const query = `
-        query($ecosystem: SecurityAdvisoryEcosystem) {
-          securityVulnerabilities(first: 50, ecosystem: $ecosystem, orderBy: {field: UPDATED_AT, direction: DESC}) {
+          }
+        }
+      }
+    `;
+        const response = await octokit.graphql(query, { ecosystem: graphqlEnum });
+        const nodes = response.securityVulnerabilities.nodes;
+        core.info(`Pulled ${nodes.length} advisories from the CTI feed for ${graphqlEnum}.`);
+        nodes.forEach((v, i) => {
+            const cwes = (v.advisory.cwes?.nodes ?? []);
+            const cweStr = cwes.length > 0 ? cwes.map(c => c.cweId).join(', ') : 'no CWE';
+            const cvssStr = v.advisory.cvss ? `CVSS ${v.advisory.cvss.score.toFixed(1)}` : 'no CVSS';
+            core.info(`  [${i + 1}] ${v.package.name} ${v.vulnerableVersionRange} — ${v.advisory.summary} (${v.severity}) [${cweStr}] [${cvssStr}]`);
+        });
+        results.push(...nodes.map((v) => ({
+            ghsaId: v.advisory.ghsaId,
+            summary: v.advisory.summary,
+            description: v.advisory.description ?? null,
+            cwes: v.advisory.cwes?.nodes ?? [],
+            cvss: v.advisory.cvss ?? null,
+            severity: v.severity,
+            packageName: v.package.name,
+            vulnerableVersionRange: v.vulnerableVersionRange ?? null,
+            firstPatchedVersion: v.firstPatchedVersion?.identifier ?? null,
+            ecosystem: eco,
+        })));
+    }
+    return results;
+}
+// ─── Watched Advisories ───────────────────────────────────────────────────────
+// Fetches specific advisories by GHSA ID — used for packages the team knows
+// are in their stack and wants checked on every run regardless of feed position.
+async function fetchWatchedAdvisories(octokit, ghsaIds) {
+    if (ghsaIds.length === 0)
+        return [];
+    core.info(`Fetching ${ghsaIds.length} watched advisory ID(s)...`);
+    const results = [];
+    for (const ghsaId of ghsaIds) {
+        const query = `
+      query($ghsaId: String!) {
+        securityAdvisory(ghsaId: $ghsaId) {
+          ghsaId
+          summary
+          description
+          cwes(first: 10) { nodes { cweId name } }
+          cvss { score vectorString }
+          vulnerabilities(first: 10) {
             nodes {
               severity
               vulnerableVersionRange
               firstPatchedVersion { identifier }
-              package { name }
-              advisory {
-                ghsaId
-                summary
-                description
-                cwes(first: 10) { nodes { cweId name } }
-                cvss { score vectorString }
-              }
+              package { name ecosystem }
             }
           }
         }
-      `;
-            const response = await octokit.graphql(query, { ecosystem: graphqlEnum });
-            const nodes = response.securityVulnerabilities.nodes;
-            core.info(`Pulled ${nodes.length} advisories from the CTI feed for ${graphqlEnum}.`);
-            nodes.forEach((v, i) => {
-                const cwes = (v.advisory.cwes?.nodes ?? []);
-                const cweStr = cwes.length > 0 ? cwes.map(c => c.cweId).join(', ') : 'no CWE';
-                const cvssStr = v.advisory.cvss ? `CVSS ${v.advisory.cvss.score.toFixed(1)}` : 'no CVSS';
-                core.info(`  [${i + 1}] ${v.package.name} ${v.vulnerableVersionRange} — ${v.advisory.summary} (${v.severity}) [${cweStr}] [${cvssStr}]`);
-            });
-            const formatted = nodes.map((v) => ({
-                ghsaId: v.advisory.ghsaId,
-                summary: v.advisory.summary,
-                description: v.advisory.description ?? null,
-                cwes: v.advisory.cwes?.nodes ?? [],
-                cvss: v.advisory.cvss ?? null,
-                severity: v.severity,
-                packageName: v.package.name,
-                vulnerableVersionRange: v.vulnerableVersionRange ?? null,
-                firstPatchedVersion: v.firstPatchedVersion?.identifier ?? null,
-                ecosystem: eco,
-            }));
-            allAdvisories.push(...formatted);
+      }
+    `;
+        try {
+            const response = await octokit.graphql(query, { ghsaId });
+            const advisory = response.securityAdvisory;
+            if (!advisory) {
+                core.warning(`  Watched advisory not found: ${ghsaId}`);
+                continue;
+            }
+            for (const vuln of advisory.vulnerabilities.nodes) {
+                const eco = vuln.package.ecosystem.toLowerCase();
+                results.push({
+                    ghsaId: advisory.ghsaId,
+                    summary: advisory.summary,
+                    description: advisory.description ?? null,
+                    cwes: advisory.cwes?.nodes ?? [],
+                    cvss: advisory.cvss ?? null,
+                    severity: vuln.severity,
+                    packageName: vuln.package.name,
+                    vulnerableVersionRange: vuln.vulnerableVersionRange ?? null,
+                    firstPatchedVersion: vuln.firstPatchedVersion?.identifier ?? null,
+                    ecosystem: eco,
+                });
+                core.info(`  [watched] ${vuln.package.name} ${vuln.vulnerableVersionRange} — ${advisory.summary} (${vuln.severity})`);
+            }
         }
-        return allAdvisories;
+        catch (err) {
+            core.warning(`  Failed to fetch watched advisory ${ghsaId}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+    }
+    return results;
+}
+// ─── Main Export ──────────────────────────────────────────────────────────────
+async function fetchRecentAdvisories(token, ecosystems, watchedGhsaIds = []) {
+    const octokit = github.getOctokit(token);
+    core.info('Component 2: Waking up Alert Fetcher...');
+    try {
+        const [feedAdvisories, watchedAdvisories] = await Promise.all([
+            fetchFeedAdvisories(octokit, ecosystems),
+            fetchWatchedAdvisories(octokit, watchedGhsaIds),
+        ]);
+        // Merge: watched advisories fill in anything the live feed missed.
+        // Deduplicate by GHSA ID + package name so a watched advisory already
+        // in the feed isn't reported twice.
+        const seen = new Set(feedAdvisories.map(a => `${a.ghsaId}:${a.packageName}`));
+        const merged = [
+            ...feedAdvisories,
+            ...watchedAdvisories.filter(a => !seen.has(`${a.ghsaId}:${a.packageName}`)),
+        ];
+        return merged;
     }
     catch (error) {
-        if (error instanceof Error) {
+        if (error instanceof Error)
             core.error(`Alert Fetcher crashed: ${error.message}`);
-        }
         return [];
     }
 }
@@ -44816,6 +44889,10 @@ async function main() {
     try {
         const token = core.getInput('github_token', { required: true });
         const threshold = core.getInput('severity_threshold');
+        const watchedGhsaRaw = core.getInput('watched_ghsa_ids');
+        const watchedGhsaIds = watchedGhsaRaw
+            ? watchedGhsaRaw.split(',').map(s => s.trim()).filter(Boolean)
+            : [];
         core.setSecret(token);
         const repoName = process.env.GITHUB_REPOSITORY ?? 'unknown/unknown';
         const workspacePath = process.env.GITHUB_WORKSPACE || process.cwd();
@@ -44833,7 +44910,7 @@ async function main() {
         }
         // --- COMPONENT 2: ALERT FETCHER ---
         core.info('');
-        const rawAdvisories = await (0, alert_fetcher_1.fetchRecentAdvisories)(token, detectedEcosystems);
+        const rawAdvisories = await (0, alert_fetcher_1.fetchRecentAdvisories)(token, detectedEcosystems, watchedGhsaIds);
         if (rawAdvisories.length === 0) {
             core.info('No recent advisories found. Exiting successfully.');
             return;

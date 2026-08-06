@@ -13,6 +13,10 @@ inputs:
     description: 'Minimum severity to process (CRITICAL, HIGH, MODERATE, LOW)'
     required: false
     default: 'HIGH'
+  watched_ghsa_ids:
+    description: 'Comma-separated GHSA IDs to always fetch regardless of live feed position (e.g. GHSA-36jr-mh4h-2g58,GHSA-abc1-def2-ghi3)'
+    required: false
+    default: ''
 
 runs:
   using: 'node24'
