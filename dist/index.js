@@ -43058,8 +43058,8 @@ async function callLLM(apiKey, prompt) {
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.buildRemediationPrompt = buildRemediationPrompt;
-function buildRemediationPrompt(ctx) {
+exports.buildExploitPrompt = buildExploitPrompt;
+function buildExploitPrompt(ctx) {
     const { threat, codeSlice, entryPoint, callChain, guards, attackClass, advisoryRichness } = ctx;
     const attackPath = entryPoint
         ? [
@@ -43080,7 +43080,7 @@ function buildRemediationPrompt(ctx) {
     const cvss = threat.cvss ? `${threat.cvss.score} — ${threat.cvss.vectorString}` : 'not available';
     const patchedIn = threat.firstPatchedVersion ?? 'no patch available';
     return `
-You are a senior application security engineer. Analyse the following vulnerability finding and produce a structured remediation report.
+You are a senior application security engineer performing a red-team exploit analysis. Your job is to determine whether this vulnerability is actually exploitable in this specific codebase, and if so, exactly how an attacker would do it.
 
 ═══════════════════════════════════════════════
 VULNERABILITY FINDING
@@ -43104,7 +43104,7 @@ Attack path    : ${attackPath}
 Attack surface : ${entryPoint?.attackableSurface.join(', ') || 'unknown'}
 Guards         : ${guardSummary}
 
-EIF call sites (where your code calls into the vulnerable package):
+EIF call sites (where this codebase calls into the vulnerable package):
 ${codeSlice.eifCallSites.map(s => `  ${s.callExpression} (line ${s.line})`).join('\n')}
 
 Caller function source code:
@@ -43115,13 +43115,17 @@ ${callerCode}
 ═══════════════════════════════════════════════
 TASK
 ═══════════════════════════════════════════════
-Produce a remediation report with exactly these two sections:
+Produce an exploit analysis report with exactly these three sections:
 
-## Risk Assessment
-In 3–5 sentences: explain how exploitable this vulnerability is given the specific attack path and guard context above. Reference the actual route, the input field the attacker controls, and whether any guards are present. Be concrete — do not repeat the advisory summary.
+## Exploit Feasibility
+In 2–3 sentences: is this vulnerability exploitable in this specific codebase given the attack path and guards above? Reference the actual route and input surface. Be direct — do not repeat the advisory summary.
 
-## Remediation Steps
-A numbered list of concrete actions, starting with the package upgrade and followed by any code-level hardening that is appropriate given the attack class and the caller code above. Each step should be specific to this codebase — reference actual function names, file paths, and field names where relevant. Include the exact npm command for the upgrade.
+## Attack Scenario
+A concrete, step-by-step description of how an attacker would exploit this: what they send, how it reaches the vulnerable function, and what the impact is. Reference the real function names and call chain.
+
+## Risk Verdict
+A single line in this exact format:
+VERDICT: <EXPLOITABLE|CONDITIONALLY_EXPLOITABLE|NOT_EXPLOITABLE> — <one sentence justification>
 `.trim();
 }
 
@@ -43509,18 +43513,18 @@ async function main() {
             core.info('Component 9: No exploit contexts to analyse — LLM step skipped.');
         }
         else if (!llmApiKey) {
-            core.info('Component 9: No LLM API key provided — skipping remediation generation.');
-            core.info('  Add llm_api_key to your workflow to enable AI-generated remediation reports.');
+            core.info('Component 9: No LLM API key provided — skipping exploit analysis.');
+            core.info('  Add llm_api_key to your workflow to enable AI-powered exploit analysis.');
         }
         else {
-            core.info('Component 9: Waking up LLM Remediation Generator...');
+            core.info('Component 9: Waking up LLM Exploit Analyzer...');
             for (const ctx of exploitContexts) {
-                core.info(`  Generating remediation report for: ${ctx.threat.packageName}`);
+                core.info(`  Analyzing exploitability for: ${ctx.threat.packageName}`);
                 try {
-                    const prompt = (0, prompt_builder_1.buildRemediationPrompt)(ctx);
+                    const prompt = (0, prompt_builder_1.buildExploitPrompt)(ctx);
                     const report = await (0, llm_client_1.callLLM)(llmApiKey, prompt);
                     core.info('');
-                    core.info('  ── LLM Remediation Report ──────────────────────────');
+                    core.info('  ── LLM Exploit Analysis ────────────────────────────');
                     core.info(`  Package : ${ctx.threat.packageName} (${ctx.threat.ghsaId})`);
                     core.info('');
                     report.split('\n').forEach(line => core.info(`  ${line}`));

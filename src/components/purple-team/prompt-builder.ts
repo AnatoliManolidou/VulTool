@@ -1,6 +1,6 @@
 import { ExploitContext } from './types';
 
-export function buildRemediationPrompt(ctx: ExploitContext): string {
+export function buildExploitPrompt(ctx: ExploitContext): string {
   const { threat, codeSlice, entryPoint, callChain, guards, attackClass, advisoryRichness } = ctx;
 
   const attackPath = entryPoint
@@ -26,7 +26,7 @@ export function buildRemediationPrompt(ctx: ExploitContext): string {
   const patchedIn = threat.firstPatchedVersion ?? 'no patch available';
 
   return `
-You are a senior application security engineer. Analyse the following vulnerability finding and produce a structured remediation report.
+You are a senior application security engineer performing a red-team exploit analysis. Your job is to determine whether this vulnerability is actually exploitable in this specific codebase, and if so, exactly how an attacker would do it.
 
 ═══════════════════════════════════════════════
 VULNERABILITY FINDING
@@ -50,7 +50,7 @@ Attack path    : ${attackPath}
 Attack surface : ${entryPoint?.attackableSurface.join(', ') || 'unknown'}
 Guards         : ${guardSummary}
 
-EIF call sites (where your code calls into the vulnerable package):
+EIF call sites (where this codebase calls into the vulnerable package):
 ${codeSlice.eifCallSites.map(s => `  ${s.callExpression} (line ${s.line})`).join('\n')}
 
 Caller function source code:
@@ -61,12 +61,16 @@ ${callerCode}
 ═══════════════════════════════════════════════
 TASK
 ═══════════════════════════════════════════════
-Produce a remediation report with exactly these two sections:
+Produce an exploit analysis report with exactly these three sections:
 
-## Risk Assessment
-In 3–5 sentences: explain how exploitable this vulnerability is given the specific attack path and guard context above. Reference the actual route, the input field the attacker controls, and whether any guards are present. Be concrete — do not repeat the advisory summary.
+## Exploit Feasibility
+In 2–3 sentences: is this vulnerability exploitable in this specific codebase given the attack path and guards above? Reference the actual route and input surface. Be direct — do not repeat the advisory summary.
 
-## Remediation Steps
-A numbered list of concrete actions, starting with the package upgrade and followed by any code-level hardening that is appropriate given the attack class and the caller code above. Each step should be specific to this codebase — reference actual function names, file paths, and field names where relevant. Include the exact npm command for the upgrade.
+## Attack Scenario
+A concrete, step-by-step description of how an attacker would exploit this: what they send, how it reaches the vulnerable function, and what the impact is. Reference the real function names and call chain.
+
+## Risk Verdict
+A single line in this exact format:
+VERDICT: <EXPLOITABLE|CONDITIONALLY_EXPLOITABLE|NOT_EXPLOITABLE> — <one sentence justification>
 `.trim();
 }
