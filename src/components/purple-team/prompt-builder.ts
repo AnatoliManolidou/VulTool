@@ -61,13 +61,16 @@ ${callerCode}
 ═══════════════════════════════════════════════
 TASK
 ═══════════════════════════════════════════════
-Produce an exploit analysis report with exactly these three sections:
+Produce an exploit analysis report with exactly these four sections:
 
 ## Exploit Feasibility
 In 2–3 sentences: is this vulnerability exploitable in this specific codebase given the attack path and guards above? Reference the actual route and input surface. Be direct — do not repeat the advisory summary.
 
 ## Attack Scenario
 A concrete, step-by-step description of how an attacker would exploit this: what they send, how it reaches the vulnerable function, and what the impact is. Reference the real function names and call chain.
+
+## Proof of Concept
+A ready-to-run exploit payload targeting this specific endpoint and input surface. Use the real route, method, and field names from the code analysis above. Format as an HTTP request or curl command. Label it clearly as LLM-generated and note what observable effect confirms it worked (e.g. server hang, error response, timeout).
 
 ## Risk Verdict
 A single line in this exact format:
