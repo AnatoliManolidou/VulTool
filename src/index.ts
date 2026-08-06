@@ -12,6 +12,8 @@ import { detectEntryPoint } from './components/purple-team/entry-point-detector'
 import { buildCallChain } from './components/purple-team/call-chain-builder';
 import { detectGuards } from './components/purple-team/guard-detector';
 import { assembleContext } from './components/purple-team/context-assembler';
+import { buildRemediationPrompt } from './components/purple-team/prompt-builder';
+import { callLLM } from './components/purple-team/llm-client';
 import { ExploitContext } from './components/purple-team/types';
 import { Advisory, Threat } from './types';
 
@@ -193,6 +195,34 @@ async function main() {
       }
     } else {
       core.info('Component 8: No code slices to analyze — purple team skipped.');
+    }
+
+    // --- COMPONENT 9: LLM REMEDIATION GENERATOR ---
+    core.info('');
+    const llmApiKey = core.getInput('llm_api_key');
+
+    if (exploitContexts.length === 0) {
+      core.info('Component 9: No exploit contexts to analyse — LLM step skipped.');
+    } else if (!llmApiKey) {
+      core.info('Component 9: No LLM API key provided — skipping remediation generation.');
+      core.info('  Add llm_api_key to your workflow to enable AI-generated remediation reports.');
+    } else {
+      core.info('Component 9: Waking up LLM Remediation Generator...');
+      for (const ctx of exploitContexts) {
+        core.info(`  Generating remediation report for: ${ctx.threat.packageName}`);
+        try {
+          const prompt = buildRemediationPrompt(ctx);
+          const report = await callLLM(llmApiKey, prompt);
+          core.info('');
+          core.info('  ── LLM Remediation Report ──────────────────────────');
+          core.info(`  Package : ${ctx.threat.packageName} (${ctx.threat.ghsaId})`);
+          core.info('');
+          report.split('\n').forEach(line => core.info(`  ${line}`));
+          core.info('  ────────────────────────────────────────────────────');
+        } catch (err) {
+          core.warning(`  LLM call failed for ${ctx.threat.packageName}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
     }
 
     await saveSeenGhsaIds(currentIds);
