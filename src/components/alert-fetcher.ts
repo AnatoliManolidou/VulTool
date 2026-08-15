@@ -149,16 +149,42 @@ async function fetchWatchedAdvisories(
   return results;
 }
 
+// ─── Demo Feed ────────────────────────────────────────────────────────────────
+
+// Loads the bundled advisory-feed.json and returns a random sample of size n.
+function fetchDemoAdvisories(sampleSize: number): Advisory[] {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const all: Advisory[] = require('../data/advisory-feed.json') as Advisory[];
+
+  // Fisher-Yates shuffle, take first sampleSize
+  for (let i = all.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [all[i], all[j]] = [all[j], all[i]];
+  }
+  const sample = all.slice(0, Math.min(sampleSize, all.length));
+
+  core.info(`  Loaded ${all.length} advisories from demo feed — serving ${sample.length} this run:`);
+  sample.forEach((a, i) => core.info(`  [${i + 1}] ${a.packageName} ${a.vulnerableVersionRange ?? ''} — ${a.summary} (${a.severity})`));
+
+  return sample;
+}
+
 // ─── Main Export ──────────────────────────────────────────────────────────────
 
 export async function fetchRecentAdvisories(
   token: string,
   ecosystems: string[],
   watchedGhsaIds: string[] = [],
+  demoMode: boolean = false,
 ): Promise<Advisory[]> {
-  const octokit = github.getOctokit(token);
-
   core.info('Component 2: Waking up Alert Fetcher...');
+
+  if (demoMode) {
+    core.info('  [DEMO MODE] Using bundled advisory feed (live GitHub feed bypassed).');
+    return fetchDemoAdvisories(8);
+  }
+
+  const octokit = github.getOctokit(token);
 
   try {
     const [feedAdvisories, watchedAdvisories] = await Promise.all([

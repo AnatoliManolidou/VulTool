@@ -1,0 +1,285 @@
+[
+  {
+    "ghsaId": "GHSA-36jr-mh4h-2g58",
+    "summary": "d3-color vulnerable to ReDoS",
+    "description": "d3-color prior to 3.1.0 contains a regular expression that is vulnerable to a denial of service through catastrophic backtracking. An attacker can provide a crafted color string to cause the server to hang.",
+    "cwes": [
+      { "cweId": "CWE-400", "name": "Uncontrolled Resource Consumption" },
+      { "cweId": "CWE-1333", "name": "Inefficient Regular Expression Complexity" }
+    ],
+    "cvss": null,
+    "severity": "HIGH",
+    "packageName": "d3-color",
+    "vulnerableVersionRange": ">= 1.0.2, < 3.1.0",
+    "firstPatchedVersion": "3.1.0",
+    "ecosystem": "npm"
+  },
+  {
+    "ghsaId": "GHSA-c2qf-rxjj-qqgw",
+    "summary": "semver vulnerable to Regular Expression Denial of Service",
+    "description": "Versions of the package semver before 7.5.2 are vulnerable to Regular Expression Denial of Service (ReDoS) via the function new Range, when untrusted user data is provided as a range.",
+    "cwes": [
+      { "cweId": "CWE-1333", "name": "Inefficient Regular Expression Complexity" }
+    ],
+    "cvss": { "score": 7.5, "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H" },
+    "severity": "HIGH",
+    "packageName": "semver",
+    "vulnerableVersionRange": "< 5.7.2",
+    "firstPatchedVersion": "5.7.2",
+    "ecosystem": "npm"
+  },
+  {
+    "ghsaId": "GHSA-93q8-gq69-wqmw",
+    "summary": "Inefficient Regular Expression Complexity in ansi-regex",
+    "description": "ansi-regex before 6.0.1 and 5.0.1 is vulnerable to ReDoS due to a crafted string containing ANSI escape codes that can hang the process indefinitely.",
+    "cwes": [
+      { "cweId": "CWE-1333", "name": "Inefficient Regular Expression Complexity" }
+    ],
+    "cvss": { "score": 7.5, "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H" },
+    "severity": "HIGH",
+    "packageName": "ansi-regex",
+    "vulnerableVersionRange": "< 5.0.1",
+    "firstPatchedVersion": "5.0.1",
+    "ecosystem": "npm"
+  },
+  {
+    "ghsaId": "GHSA-p6mc-m468-83gw",
+    "summary": "Prototype Pollution in lodash",
+    "description": "Versions of lodash prior to 4.17.21 are vulnerable to Prototype Pollution via the function defaultsDeep, allowing attackers to modify the prototype of Object.",
+    "cwes": [
+      { "cweId": "CWE-1321", "name": "Improperly Controlled Modification of Object Prototype Attributes" }
+    ],
+    "cvss": { "score": 7.4, "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N" },
+    "severity": "HIGH",
+    "packageName": "lodash",
+    "vulnerableVersionRange": "< 4.17.21",
+    "firstPatchedVersion": "4.17.21",
+    "ecosystem": "npm"
+  },
+  {
+    "ghsaId": "GHSA-xvch-5gv4-984h",
+    "summary": "Prototype Pollution in minimist",
+    "description": "minimist before 1.2.6 is vulnerable to Prototype Pollution. An attacker can provide a key with `__proto__` in the argument string to modify the prototype of the Object.",
+    "cwes": [
+      { "cweId": "CWE-1321", "name": "Improperly Controlled Modification of Object Prototype Attributes" }
+    ],
+    "cvss": { "score": 9.8, "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H" },
+    "severity": "CRITICAL",
+    "packageName": "minimist",
+    "vulnerableVersionRange": "< 1.2.6",
+    "firstPatchedVersion": "1.2.6",
+    "ecosystem": "npm"
+  },
+  {
+    "ghsaId": "GHSA-72xf-g2v4-qvf3",
+    "summary": "tough-cookie Prototype Pollution vulnerability",
+    "description": "Versions of tough-cookie before 4.1.3 contain a synchronous cookie parsing function that is vulnerable to prototype pollution. When parsing a cookie with the SameSite extension set to a value that is a prototype property, the prototype of the Object is modified.",
+    "cwes": [
+      { "cweId": "CWE-1321", "name": "Improperly Controlled Modification of Object Prototype Attributes" }
+    ],
+    "cvss": { "score": 6.5, "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N" },
+    "severity": "MODERATE",
+    "packageName": "tough-cookie",
+    "vulnerableVersionRange": "< 4.1.3",
+    "firstPatchedVersion": "4.1.3",
+    "ecosystem": "npm"
+  },
+  {
+    "ghsaId": "GHSA-jchw-25xp-jwwc",
+    "summary": "Exposure of sensitive information to an unauthorized actor in follow-redirects",
+    "description": "follow-redirects before 1.14.8 is vulnerable to Exposure of Sensitive Information. In the affected versions, sensitive headers are passed to an untrusted location while following redirects from HTTP to HTTPS.",
+    "cwes": [
+      { "cweId": "CWE-200", "name": "Exposure of Sensitive Information to an Unauthorized Actor" }
+    ],
+    "cvss": { "score": 6.5, "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:N/A:N" },
+    "severity": "MODERATE",
+    "packageName": "follow-redirects",
+    "vulnerableVersionRange": "< 1.14.8",
+    "firstPatchedVersion": "1.14.8",
+    "ecosystem": "npm"
+  },
+  {
+    "ghsaId": "GHSA-r683-j2x4-v87g",
+    "summary": "node-fetch forwards secure headers to untrusted sites",
+    "description": "node-fetch before 2.6.7 and 3.x before 3.1.1 does not honor the size option after following a redirect, which means that when a content size restriction is set, a malicious server may cause node-fetch to expose sensitive information from the environment.",
+    "cwes": [
+      { "cweId": "CWE-200", "name": "Exposure of Sensitive Information to an Unauthorized Actor" },
+      { "cweId": "CWE-918", "name": "Server-Side Request Forgery" }
+    ],
+    "cvss": { "score": 8.8, "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H" },
+    "severity": "HIGH",
+    "packageName": "node-fetch",
+    "vulnerableVersionRange": "< 2.6.7",
+    "firstPatchedVersion": "2.6.7",
+    "ecosystem": "npm"
+  },
+  {
+    "ghsaId": "GHSA-8hfj-j24r-96c4",
+    "summary": "Moment.js vulnerable to Inefficient Regular Expression Complexity",
+    "description": "Versions of moment.js before 2.29.4 are vulnerable to ReDoS. An attacker can provide a specially crafted string as input to any of the `from*` or `to*` functions and cause the application to hang.",
+    "cwes": [
+      { "cweId": "CWE-1333", "name": "Inefficient Regular Expression Complexity" }
+    ],
+    "cvss": { "score": 7.5, "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H" },
+    "severity": "HIGH",
+    "packageName": "moment",
+    "vulnerableVersionRange": "< 2.29.4",
+    "firstPatchedVersion": "2.29.4",
+    "ecosystem": "npm"
+  },
+  {
+    "ghsaId": "GHSA-phwq-j96m-2c2q",
+    "summary": "Server-side Template Injection vulnerability in ejs",
+    "description": "The ejs package prior to 3.1.7 is vulnerable to server-side template injection. When calling `ejs.render` with untrusted user-controlled data as the options object, an attacker can achieve remote code execution via the `outputFunctionName` option.",
+    "cwes": [
+      { "cweId": "CWE-94", "name": "Improper Control of Generation of Code" },
+      { "cweId": "CWE-1336", "name": "Improper Neutralization of Special Elements Used in a Template Engine" }
+    ],
+    "cvss": { "score": 9.8, "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H" },
+    "severity": "CRITICAL",
+    "packageName": "ejs",
+    "vulnerableVersionRange": "< 3.1.7",
+    "firstPatchedVersion": "3.1.7",
+    "ecosystem": "npm"
+  },
+  {
+    "ghsaId": "GHSA-hjrf-2m68-5959",
+    "summary": "jsonwebtoken vulnerable to signature validation bypass",
+    "description": "versions prior to 9.0.0 of jsonwebtoken are affected by a vulnerability which allows a malicious actor to bypass the signature validation by providing an empty string as the secret. The jwt.verify function does not check if the secret is a non-empty string.",
+    "cwes": [
+      { "cweId": "CWE-347", "name": "Improper Verification of Cryptographic Signature" }
+    ],
+    "cvss": { "score": 7.6, "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:H/A:L" },
+    "severity": "HIGH",
+    "packageName": "jsonwebtoken",
+    "vulnerableVersionRange": "< 9.0.0",
+    "firstPatchedVersion": "9.0.0",
+    "ecosystem": "npm"
+  },
+  {
+    "ghsaId": "GHSA-9c47-m6qq-7p4h",
+    "summary": "Path Traversal in tar",
+    "description": "Versions of node tar before 6.1.9 are vulnerable to path traversal attacks. Arbitrary file creation, modification, and overwrite is possible by extracting a specially crafted tar archive.",
+    "cwes": [
+      { "cweId": "CWE-22", "name": "Improper Limitation of a Pathname to a Restricted Directory" }
+    ],
+    "cvss": { "score": 8.2, "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:H" },
+    "severity": "HIGH",
+    "packageName": "tar",
+    "vulnerableVersionRange": "< 6.1.9",
+    "firstPatchedVersion": "6.1.9",
+    "ecosystem": "npm"
+  },
+  {
+    "ghsaId": "GHSA-cf4h-3jhx-xvhq",
+    "summary": "Arbitrary Code Execution in underscore",
+    "description": "Versions of underscore.js prior to 1.12.1 are vulnerable to Arbitrary Code Execution via the template function. When an untrusted value is passed as the variable argument, an attacker can execute arbitrary JavaScript in the context of the current user.",
+    "cwes": [
+      { "cweId": "CWE-94", "name": "Improper Control of Generation of Code" }
+    ],
+    "cvss": { "score": 8.8, "vectorString": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H" },
+    "severity": "HIGH",
+    "packageName": "underscore",
+    "vulnerableVersionRange": "< 1.12.1",
+    "firstPatchedVersion": "1.12.1",
+    "ecosystem": "npm"
+  },
+  {
+    "ghsaId": "GHSA-cxjh-pqwp-8mfp",
+    "summary": "Server-Side Request Forgery in axios",
+    "description": "axios 0.8.1 through 1.5.1 allows SSRF via unexpected behavior where requests for path relative URLs get processed as protocol relative URLs. This enables attackers on shared environments to proxy requests to localhost or internal services.",
+    "cwes": [
+      { "cweId": "CWE-918", "name": "Server-Side Request Forgery" }
+    ],
+    "cvss": { "score": 6.5, "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:N/A:N" },
+    "severity": "MODERATE",
+    "packageName": "axios",
+    "vulnerableVersionRange": ">= 0.8.1, <= 1.5.1",
+    "firstPatchedVersion": "1.6.0",
+    "ecosystem": "npm"
+  },
+  {
+    "ghsaId": "GHSA-f2jv-r9rf-7988",
+    "summary": "Prototype Pollution in handlebars",
+    "description": "The package handlebars before 4.7.7 is vulnerable to Prototype Pollution when selecting certain compiling options to compile templates coming from an untrusted source.",
+    "cwes": [
+      { "cweId": "CWE-1321", "name": "Improperly Controlled Modification of Object Prototype Attributes" }
+    ],
+    "cvss": { "score": 9.8, "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H" },
+    "severity": "CRITICAL",
+    "packageName": "handlebars",
+    "vulnerableVersionRange": "< 4.7.7",
+    "firstPatchedVersion": "4.7.7",
+    "ecosystem": "npm"
+  },
+  {
+    "ghsaId": "GHSA-h9rv-jmmf-4pgx",
+    "summary": "Cross-Site Scripting in serialize-javascript",
+    "description": "Versions of serialize-javascript prior to 3.1.0 are vulnerable to Cross-Site Scripting (XSS). The package fails to sanitize serialized regular expressions, allowing a remote attacker to inject arbitrary code.",
+    "cwes": [
+      { "cweId": "CWE-79", "name": "Improper Neutralization of Input During Web Page Generation" }
+    ],
+    "cvss": { "score": 7.1, "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:H/A:N" },
+    "severity": "HIGH",
+    "packageName": "serialize-javascript",
+    "vulnerableVersionRange": "< 3.1.0",
+    "firstPatchedVersion": "3.1.0",
+    "ecosystem": "npm"
+  },
+  {
+    "ghsaId": "GHSA-pfrx-2q88-qq97",
+    "summary": "Got allows a redirect to a UNIX socket",
+    "description": "Versions of got before 11.8.5 and 12.1.0 contain a redirect open to UNIX socket endpoints due to a missing check. This can enable an SSRF attack targeting services listening on UNIX sockets.",
+    "cwes": [
+      { "cweId": "CWE-918", "name": "Server-Side Request Forgery" }
+    ],
+    "cvss": { "score": 8.1, "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N" },
+    "severity": "MODERATE",
+    "packageName": "got",
+    "vulnerableVersionRange": ">= 12.0.0, < 12.1.0",
+    "firstPatchedVersion": "12.1.0",
+    "ecosystem": "npm"
+  },
+  {
+    "ghsaId": "GHSA-x5rq-j2xg-h7qm",
+    "summary": "marked vulnerable to Regular Expression Denial of Service",
+    "description": "Versions of marked before 4.0.10 are vulnerable to ReDoS. The package does not properly handle untrusted input, allowing attackers to craft strings that trigger polynomial-time regex backtracking and cause the server to hang.",
+    "cwes": [
+      { "cweId": "CWE-1333", "name": "Inefficient Regular Expression Complexity" }
+    ],
+    "cvss": { "score": 7.5, "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H" },
+    "severity": "HIGH",
+    "packageName": "marked",
+    "vulnerableVersionRange": "< 4.0.10",
+    "firstPatchedVersion": "4.0.10",
+    "ecosystem": "npm"
+  },
+  {
+    "ghsaId": "GHSA-w573-4hg7-7wgq",
+    "summary": "Improper Verification of Cryptographic Signature in node-forge",
+    "description": "node-forge prior to 1.3.0 is vulnerable to improper validation of RSA PKCS#1 v1.5 signature during verification. The library does not check whether the padding is correct, allowing an attacker to forge a valid RSA signature.",
+    "cwes": [
+      { "cweId": "CWE-347", "name": "Improper Verification of Cryptographic Signature" }
+    ],
+    "cvss": { "score": 7.5, "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N" },
+    "severity": "HIGH",
+    "packageName": "node-forge",
+    "vulnerableVersionRange": "< 1.3.0",
+    "firstPatchedVersion": "1.3.0",
+    "ecosystem": "npm"
+  },
+  {
+    "ghsaId": "GHSA-3xgq-45jj-v275",
+    "summary": "cross-fetch vulnerable to information exposure through sent request headers",
+    "description": "Versions of cross-fetch before 4.0.0 are vulnerable to information exposure. When following cross-domain HTTP redirects, the library sends the Authorization header to untrusted hosts, potentially exposing credentials.",
+    "cwes": [
+      { "cweId": "CWE-200", "name": "Exposure of Sensitive Information to an Unauthorized Actor" }
+    ],
+    "cvss": { "score": 6.1, "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N" },
+    "severity": "MODERATE",
+    "packageName": "cross-fetch",
+    "vulnerableVersionRange": "< 4.0.0",
+    "firstPatchedVersion": "4.0.0",
+    "ecosystem": "npm"
+  }
+]

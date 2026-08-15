@@ -50,6 +50,7 @@ async function main() {
     const watchedGhsaIds = watchedGhsaRaw
       ? watchedGhsaRaw.split(',').map(s => s.trim()).filter(Boolean)
       : [];
+    const demoMode = core.getInput('demo_mode') === 'true';
     core.setSecret(token);
 
     const repoName      = process.env.GITHUB_REPOSITORY ?? 'unknown/unknown';
@@ -71,7 +72,7 @@ async function main() {
 
     // --- COMPONENT 2: ALERT FETCHER ---
     core.info('');
-    const rawAdvisories: Advisory[] = await fetchRecentAdvisories(token, detectedEcosystems, watchedGhsaIds);
+    const rawAdvisories: Advisory[] = await fetchRecentAdvisories(token, detectedEcosystems, watchedGhsaIds, demoMode);
     if (rawAdvisories.length === 0) {
       core.info('No recent advisories found. Exiting successfully.');
       return;
