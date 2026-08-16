@@ -154,19 +154,33 @@ async function fetchWatchedAdvisories(
 // Loads the bundled advisory-feed.json and returns a random sample of size n.
 function fetchDemoAdvisories(sampleSize: number): Advisory[] {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const all: Advisory[] = require('../data/advisory-feed.json') as Advisory[];
+  const nodes: any[] = require('../data/advisory-feed.json');
 
   // Fisher-Yates shuffle, take first sampleSize
-  for (let i = all.length - 1; i > 0; i--) {
+  for (let i = nodes.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [all[i], all[j]] = [all[j], all[i]];
+    [nodes[i], nodes[j]] = [nodes[j], nodes[i]];
   }
-  const sample = all.slice(0, Math.min(sampleSize, all.length));
+  const sample = nodes.slice(0, Math.min(sampleSize, nodes.length));
 
-  core.info(`  Loaded ${all.length} advisories from demo feed — serving ${sample.length} this run:`);
-  sample.forEach((a, i) => core.info(`  [${i + 1}] ${a.packageName} ${a.vulnerableVersionRange ?? ''} — ${a.summary} (${a.severity})`));
+  // Apply the same node→Advisory mapping as the live feed path
+  const advisories: Advisory[] = sample.map((v: any): Advisory => ({
+    ghsaId:                 v.advisory.ghsaId,
+    summary:                v.advisory.summary,
+    description:            v.advisory.description ?? null,
+    cwes:                   v.advisory.cwes?.nodes ?? [],
+    cvss:                   v.advisory.cvss ?? null,
+    severity:               v.severity as Severity,
+    packageName:            v.package.name,
+    vulnerableVersionRange: v.vulnerableVersionRange ?? null,
+    firstPatchedVersion:    v.firstPatchedVersion?.identifier ?? null,
+    ecosystem:              (v.package.ecosystem as string).toLowerCase() as Ecosystem,
+  }));
 
-  return sample;
+  core.info(`  Loaded ${nodes.length} node(s) from demo feed — serving ${advisories.length} this run:`);
+  advisories.forEach((a, i) => core.info(`  [${i + 1}] ${a.packageName} ${a.vulnerableVersionRange ?? ''} — ${a.summary} (${a.severity})`));
+
+  return advisories;
 }
 
 // ─── Main Export ──────────────────────────────────────────────────────────────
