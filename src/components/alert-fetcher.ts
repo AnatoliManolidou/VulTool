@@ -31,8 +31,6 @@ async function fetchFeedAdvisories(
       continue;
     }
 
-    core.info(`Fetching latest 25 advisories for ecosystem: ${graphqlEnum}...`);
-
     const query = `
       query($ecosystem: SecurityAdvisoryEcosystem) {
         securityVulnerabilities(first: 25, ecosystem: $ecosystem, orderBy: {field: UPDATED_AT, direction: DESC}) {
@@ -55,15 +53,6 @@ async function fetchFeedAdvisories(
 
     const response: any = await octokit.graphql(query, { ecosystem: graphqlEnum });
     const nodes = response.securityVulnerabilities.nodes as any[];
-
-    core.info(`Pulled ${nodes.length} advisories from the CTI feed for ${graphqlEnum}.`);
-
-    nodes.forEach((v: any, i: number) => {
-      const cwes    = (v.advisory.cwes?.nodes ?? []) as Array<{ cweId: string }>;
-      const cweStr  = cwes.length > 0 ? cwes.map(c => c.cweId).join(', ') : 'no CWE';
-      const cvssStr = v.advisory.cvss ? `CVSS ${(v.advisory.cvss.score as number).toFixed(1)}` : 'no CVSS';
-      core.info(`  [${i + 1}] ${v.package.name} ${v.vulnerableVersionRange} — ${v.advisory.summary} (${v.severity}) [${cweStr}] [${cvssStr}]`);
-    });
 
     results.push(...nodes.map((v: any): Advisory => ({
       ghsaId:                 v.advisory.ghsaId,
@@ -91,8 +80,6 @@ async function fetchWatchedAdvisories(
   ghsaIds: string[],
 ): Promise<Advisory[]> {
   if (ghsaIds.length === 0) return [];
-
-  core.info(`Fetching ${ghsaIds.length} watched advisory ID(s)...`);
 
   const results: Advisory[] = [];
 
@@ -139,7 +126,6 @@ async function fetchWatchedAdvisories(
           firstPatchedVersion:    vuln.firstPatchedVersion?.identifier ?? null,
           ecosystem:              eco as Ecosystem,
         });
-        core.info(`  [watched] ${vuln.package.name} ${vuln.vulnerableVersionRange} — ${advisory.summary} (${vuln.severity})`);
       }
     } catch (err) {
       core.warning(`  Failed to fetch watched advisory ${ghsaId}: ${err instanceof Error ? err.message : String(err)}`);
@@ -157,8 +143,6 @@ export async function fetchRecentAdvisories(
   watchedGhsaIds: string[] = [],
 ): Promise<Advisory[]> {
   const octokit = github.getOctokit(token);
-
-  core.info('Component 2: Waking up Alert Fetcher...');
 
   try {
     const [feedAdvisories, watchedAdvisories] = await Promise.all([
