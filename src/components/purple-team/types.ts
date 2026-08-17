@@ -92,30 +92,3 @@ export interface ExploitContext {
   guards:           GuardContext;
 }
 
-// ─── Exploit (LLM output) ─────────────────────────────────────────────────────
-
-export type BlastRadius =
-  | 'rce'
-  | 'data-exfiltration'
-  | 'privilege-escalation'
-  | 'dos'
-  | 'other';
-
-export interface Exploit {
-  attackVector:        string;    // e.g. "POST /api/upload with multipart body"
-  payload:             string;    // the actual malicious input
-  preconditions:       string[];  // conditions that must be true for the exploit to work
-  exploitDescription:  string;    // step-by-step prose of the attack
-  blastRadius:         BlastRadius;
-  exploitability:      'high' | 'medium' | 'low';
-  confidence:          'high' | 'medium' | 'low';
-  confidenceReason:    string;
-}
-
-// ─── Final C8 Output ─────────────────────────────────────────────────────────
-
-export interface ExploitResult {
-  context:         ExploitContext;
-  exploit:         Exploit | null;  // null when skipped (test-only, build-time, no entry point)
-  contextualScore: number;          // re-ranked priority from the Contextual Risk Assigner
-}

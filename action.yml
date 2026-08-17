@@ -7,7 +7,7 @@ inputs:
     description: 'GitHub API token for pulling dependency graphs and fetching advisories'
     required: true
   llm_api_key:
-    description: 'API key for the LLM used in exploit context generation and risk scoring (optional — pipeline runs in analysis-only mode without it)'
+    description: 'API key for the LLM used in exploit analysis (optional — pipeline runs through C8 in analysis-only mode without it)'
     required: false
   severity_threshold:
     description: 'Minimum severity to process (CRITICAL, HIGH, MODERATE, LOW)'

@@ -43454,7 +43454,6 @@ async function main() {
         }
         // --- COMPONENT 8: PURPLE TEAM CONTEXT (tree-sitter) ---
         core.info('');
-        // Populated by C8; consumed by C9 Prompt Builder → LLM Call → Risk Scorer (not yet implemented)
         const exploitContexts = [];
         if (codeSlices.length > 0) {
             core.info('Component 8: Waking up Purple Team Context Analyzer (tree-sitter)...');
