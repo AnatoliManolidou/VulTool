@@ -43446,7 +43446,7 @@ async function main() {
         // --- ADVISORY SKIP CHECK ---
         const lastSeenIds = await loadLastSeenGhsaIds();
         const currentIds = new Set(rawAdvisories.map(a => a.ghsaId));
-        const hasNewIds = lastSeenIds.size === 0 || [...currentIds].some(id => !lastSeenIds.has(id));
+        const hasNewIds = demoMode || lastSeenIds.size === 0 || [...currentIds].some(id => !lastSeenIds.has(id));
         if (!hasNewIds) {
             core.info('');
             core.info('No new advisories since last scan — pipeline skipped. Next check in ~1 hour.');
