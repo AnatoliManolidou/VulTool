@@ -85,9 +85,6 @@ export async function getRepositoryDependencies(
   const { owner, repo } = github.context.repo;
 
   try {
-    core.info(`Component 3: Waking up Dependency Mapper for ${owner}/${repo}...`);
-    core.info('  Source: GitHub Dependency Graph SBOM (cross-ecosystem) + local workspace lockfiles (current branch)');
-
     const response = await octokit.request(
       'GET /repos/{owner}/{repo}/dependency-graph/sbom',
       {
@@ -124,7 +121,6 @@ export async function getRepositoryDependencies(
       installedPackages.set(name, version);
     }
 
-    core.info(`  Mapped ${installedPackages.size} installed package(s) (${localOnly} npm package(s) added from local workspace lockfile).`);
     return installedPackages;
 
   } catch (error) {

@@ -1,4 +1,3 @@
-import * as core from '@actions/core';
 import * as fs from 'fs';
 import * as path from 'path';
 import Parser from 'web-tree-sitter';
@@ -238,18 +237,13 @@ export async function analyzeCodeUsage(
   npmThreats: Threat[],
   workspacePath: string
 ): Promise<CodeSlice[]> {
-  core.info('Component 7: Waking up AST Analyzer...');
-
   await initParser();
 
   const sourceFiles = findSourceFiles(workspacePath);
-  core.info(`Scanning ${sourceFiles.length} source file(s) across the repository.`);
 
   const results: CodeSlice[] = [];
 
   for (const threat of npmThreats) {
-    core.info(`Analyzing usage of: ${threat.packageName} (${threat.ghsaId})`);
-
     const affectedFiles: string[] = [];
     const sourceCaches = new Map<string, string>();
 
@@ -263,12 +257,7 @@ export async function analyzeCodeUsage(
       } catch { /* unreadable — skip */ }
     }
 
-    if (affectedFiles.length === 0) {
-      core.info(`  No direct imports of ${threat.packageName} found — skipping.`);
-      continue;
-    }
-
-    core.info(`  ${affectedFiles.length} file(s) import ${threat.packageName}. Running AST pass...`);
+    if (affectedFiles.length === 0) continue;
 
     const eifCallSites: EIFCallSite[] = [];
     const callerSlices: CallerSlice[] = [];
@@ -282,15 +271,9 @@ export async function analyzeCodeUsage(
       const relPath = path.relative(workspacePath, file);
 
       const bindings = extractImportBindings(tree, threat.packageName);
-      if (bindings.size === 0) {
-        core.info(`  [${relPath}] Import found but bindings unresolved — skipping EIF scan.`);
-        continue;
-      }
-
-      core.info(`  [${relPath}] Bindings resolved: ${[...bindings].join(', ')}`);
+      if (bindings.size === 0) continue;
 
       const eifNodes = findEIFNodes(tree, bindings);
-      core.info(`  [${relPath}] EIF call sites found: ${eifNodes.length}`);
 
       for (const node of eifNodes) {
         const text = node.text;
@@ -319,11 +302,6 @@ export async function analyzeCodeUsage(
       }
     }
 
-    const funcNames = callerSlices.length > 0
-      ? [...new Set(callerSlices.map(s => s.functionName))].join(', ')
-      : 'none';
-    core.info(`  EIF call sites: ${eifCallSites.length} | Caller functions: ${funcNames}`);
-
     results.push({
       threatGhsaId:  threat.ghsaId,
       packageName:   threat.packageName,
@@ -335,6 +313,5 @@ export async function analyzeCodeUsage(
     });
   }
 
-  core.info(`AST analysis complete. ${results.length} threat(s) have confirmed code usage.`);
   return results;
 }

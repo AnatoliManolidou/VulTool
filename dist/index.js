@@ -41235,15 +41235,11 @@ function fetchDemoAdvisories(sampleSize) {
         firstPatchedVersion: v.firstPatchedVersion?.identifier ?? null,
         ecosystem: v.package.ecosystem.toLowerCase(),
     }));
-    core.info(`  Loaded ${nodes.length} node(s) from demo feed — serving ${advisories.length} this run:`);
-    advisories.forEach((a, i) => core.info(`  [${i + 1}] ${a.packageName} ${a.vulnerableVersionRange ?? ''} — ${a.summary} (${a.severity})`));
     return advisories;
 }
 // ─── Main Export ──────────────────────────────────────────────────────────────
 async function fetchRecentAdvisories(token, ecosystems, watchedGhsaIds = [], demoMode = false) {
-    core.info('Component 2: Waking up Alert Fetcher...');
     if (demoMode) {
-        core.info('  [DEMO MODE] Using bundled advisory feed (live GitHub feed bypassed).');
         return fetchDemoAdvisories(8);
     }
     const octokit = github.getOctokit(token);
@@ -41315,7 +41311,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.analyzeCodeUsage = analyzeCodeUsage;
-const core = __importStar(__nccwpck_require__(37484));
 const fs = __importStar(__nccwpck_require__(79896));
 const path = __importStar(__nccwpck_require__(16928));
 const web_tree_sitter_1 = __importDefault(__nccwpck_require__(50171));
@@ -41533,13 +41528,10 @@ function buildModuleLevelSlice(callNode, source, file) {
     };
 }
 async function analyzeCodeUsage(npmThreats, workspacePath) {
-    core.info('Component 7: Waking up AST Analyzer...');
     await initParser();
     const sourceFiles = findSourceFiles(workspacePath);
-    core.info(`Scanning ${sourceFiles.length} source file(s) across the repository.`);
     const results = [];
     for (const threat of npmThreats) {
-        core.info(`Analyzing usage of: ${threat.packageName} (${threat.ghsaId})`);
         const affectedFiles = [];
         const sourceCaches = new Map();
         for (const file of sourceFiles) {
@@ -41552,11 +41544,8 @@ async function analyzeCodeUsage(npmThreats, workspacePath) {
             }
             catch { /* unreadable — skip */ }
         }
-        if (affectedFiles.length === 0) {
-            core.info(`  No direct imports of ${threat.packageName} found — skipping.`);
+        if (affectedFiles.length === 0)
             continue;
-        }
-        core.info(`  ${affectedFiles.length} file(s) import ${threat.packageName}. Running AST pass...`);
         const eifCallSites = [];
         const callerSlices = [];
         for (const file of affectedFiles) {
@@ -41567,13 +41556,9 @@ async function analyzeCodeUsage(npmThreats, workspacePath) {
             const tree = parser.parse(source);
             const relPath = path.relative(workspacePath, file);
             const bindings = extractImportBindings(tree, threat.packageName);
-            if (bindings.size === 0) {
-                core.info(`  [${relPath}] Import found but bindings unresolved — skipping EIF scan.`);
+            if (bindings.size === 0)
                 continue;
-            }
-            core.info(`  [${relPath}] Bindings resolved: ${[...bindings].join(', ')}`);
             const eifNodes = findEIFNodes(tree, bindings);
-            core.info(`  [${relPath}] EIF call sites found: ${eifNodes.length}`);
             for (const node of eifNodes) {
                 const text = node.text;
                 eifCallSites.push({
@@ -41602,10 +41587,6 @@ async function analyzeCodeUsage(npmThreats, workspacePath) {
                 }
             }
         }
-        const funcNames = callerSlices.length > 0
-            ? [...new Set(callerSlices.map(s => s.functionName))].join(', ')
-            : 'none';
-        core.info(`  EIF call sites: ${eifCallSites.length} | Caller functions: ${funcNames}`);
         results.push({
             threatGhsaId: threat.ghsaId,
             packageName: threat.packageName,
@@ -41616,7 +41597,6 @@ async function analyzeCodeUsage(npmThreats, workspacePath) {
             callerSlices,
         });
     }
-    core.info(`AST analysis complete. ${results.length} threat(s) have confirmed code usage.`);
     return results;
 }
 
@@ -41741,8 +41721,6 @@ async function getRepositoryDependencies(token, workspacePath) {
     const octokit = github.getOctokit(token);
     const { owner, repo } = github.context.repo;
     try {
-        core.info(`Component 3: Waking up Dependency Mapper for ${owner}/${repo}...`);
-        core.info('  Source: GitHub Dependency Graph SBOM (cross-ecosystem) + local workspace lockfiles (current branch)');
         const response = await octokit.request('GET /repos/{owner}/{repo}/dependency-graph/sbom', {
             owner,
             repo,
@@ -41770,7 +41748,6 @@ async function getRepositoryDependencies(token, workspacePath) {
                 localOnly++;
             installedPackages.set(name, version);
         }
-        core.info(`  Mapped ${installedPackages.size} installed package(s) (${localOnly} npm package(s) added from local workspace lockfile).`);
         return installedPackages;
     }
     catch (error) {
@@ -41826,7 +41803,6 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.classifyDeploymentContext = classifyDeploymentContext;
 const fs = __importStar(__nccwpck_require__(79896));
 const path = __importStar(__nccwpck_require__(16928));
-const core = __importStar(__nccwpck_require__(37484));
 const SEVERITY_WEIGHTS = {
     'LOW': 1,
     'MODERATE': 2,
@@ -42082,7 +42058,6 @@ function extractErlangDevDeps(workspacePath, devDeps) {
     catch { /* skip */ }
 }
 function classifyDeploymentContext(advisories, workspacePath, ecosystems) {
-    core.info('Component 5: Waking up Deployment Classifier...');
     const devDependencies = new Set();
     if (ecosystems.includes('npm'))
         extractNpmDevDeps(workspacePath, devDependencies);
@@ -42103,7 +42078,6 @@ function classifyDeploymentContext(advisories, workspacePath, ecosystems) {
     if (ecosystems.includes('erlang'))
         extractErlangDevDeps(workspacePath, devDependencies);
     // Go and Swift have no dev-dependency distinction — all deps are treated as production
-    core.info(`Identified ${devDependencies.size} dev-only packages across all ecosystems.`);
     const assessedThreats = advisories.map(advisory => {
         const isDev = devDependencies.has(advisory.packageName?.toLowerCase());
         const contextTag = isDev
@@ -42112,7 +42086,6 @@ function classifyDeploymentContext(advisories, workspacePath, ecosystems) {
         // Severity is the primary sort key; prod/dev is the tiebreaker within the same severity
         const severityWeight = SEVERITY_WEIGHTS[advisory.severity?.toUpperCase()] || 0;
         const priorityScore = severityWeight * 10 + (isDev ? 0 : 5);
-        core.info(`  ${advisory.packageName} [${advisory.severity}] → ${contextTag} (score: ${priorityScore})`);
         return {
             ...advisory,
             contextualRisk: contextTag,
@@ -42120,7 +42093,6 @@ function classifyDeploymentContext(advisories, workspacePath, ecosystems) {
             priorityScore,
         };
     });
-    core.info(`Classified ${assessedThreats.length} threat(s).`);
     return assessedThreats;
 }
 
@@ -42173,8 +42145,6 @@ const core = __importStar(__nccwpck_require__(37484));
 function detectEcosystems(workspacePath) {
     const ecosystems = [];
     try {
-        core.info('Component 1: Waking up Ecosystem Detector...');
-        core.info(`Scanning workspace: ${workspacePath}`);
         const signatures = [
             { file: 'package.json', ecosystem: 'npm' },
             { file: 'requirements.txt', ecosystem: 'pip' },
@@ -42197,7 +42167,6 @@ function detectEcosystems(workspacePath) {
         for (const sig of signatures) {
             const fullPath = path.join(workspacePath, sig.file);
             if (fs.existsSync(fullPath)) {
-                core.info(`Found signature file: ${sig.file} -> Target Ecosystem: ${sig.ecosystem}`);
                 if (!ecosystems.includes(sig.ecosystem)) {
                     ecosystems.push(sig.ecosystem);
                 }
@@ -42213,9 +42182,6 @@ function detectEcosystems(workspacePath) {
                 }
             }
             catch { /* non-critical */ }
-        }
-        if (ecosystems.length === 0) {
-            core.notice('No recognizable package manager files found. Pipeline halting safely.');
         }
     }
     catch (error) {
@@ -43182,69 +43148,14 @@ VERDICT: <EXPLOITABLE|CONDITIONALLY_EXPLOITABLE|NOT_EXPLOITABLE> — <one senten
 /***/ }),
 
 /***/ 89331:
-/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+/***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
 
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.generateRemediationQueue = generateRemediationQueue;
-const core = __importStar(__nccwpck_require__(37484));
 function generateRemediationQueue(threats) {
-    core.info('Component 6: Waking up Remediation Queue...');
-    if (threats.length === 0) {
-        core.info('Queue empty. No remediation required.');
-        return [];
-    }
-    const sortedThreats = [...threats].sort((a, b) => b.priorityScore - a.priorityScore);
-    core.info('=========================================');
-    core.info('         FINAL REMEDIATION QUEUE         ');
-    core.info('=========================================');
-    sortedThreats.forEach((threat, index) => {
-        core.info(`[Priority ${index + 1}] ${threat.packageName}`);
-        core.info(`    Identifier:    ${threat.ghsaId}`);
-        core.info(`    Ecosystem:     ${threat.ecosystem}`);
-        core.info(`    Severity:      ${threat.severity}`);
-        core.info(`    Context:       ${threat.contextualRisk}`);
-        core.info(`    Priority Score: ${threat.priorityScore}`);
-        core.info(`    Affected:      ${threat.vulnerableVersionRange}`);
-        core.info(`    Patched In:    ${threat.firstPatchedVersion ?? 'no patch available'}`);
-        core.info(`    Summary:       ${threat.summary}`);
-        core.info('-----------------------------------------');
-    });
-    return sortedThreats;
+    return [...threats].sort((a, b) => b.priorityScore - a.priorityScore);
 }
 
 
@@ -43293,8 +43204,6 @@ exports.filterAdvisories = filterAdvisories;
 const core = __importStar(__nccwpck_require__(37484));
 const semver_1 = __nccwpck_require__(62088);
 function filterAdvisories(advisories, thresholdInput, installedPackages) {
-    core.info(`Component 4: Waking up Vulnerability Filter (Threshold: ${thresholdInput})...`);
-    core.info(`  Checking ${advisories.length} ${advisories.length === 1 ? 'advisory' : 'advisories'} against ${installedPackages.size} installed package(s).`);
     const severityWeights = {
         'LOW': 1, 'MODERATE': 2, 'HIGH': 3, 'CRITICAL': 4,
     };
@@ -43303,31 +43212,31 @@ function filterAdvisories(advisories, thresholdInput, installedPackages) {
         core.warning('Installed package list is empty — all above-threshold advisories will be reported. ' +
             'Verify the GitHub Dependency Graph is enabled for this repository.');
     }
-    const filtered = advisories.filter(adv => {
+    const versionSkips = [];
+    const confirmed = advisories.filter(adv => {
         const packageName = adv.packageName?.toLowerCase() ?? '';
-        // Gate 1: severity threshold
         const advWeight = severityWeights[adv.severity?.toUpperCase()] ?? 0;
         if (advWeight < targetWeight)
             return false;
-        // Gate 2: package present in this repo (SBOM covers all ecosystems, single Map lookup suffices)
         if (installedPackages.size > 0 && !installedPackages.has(packageName))
             return false;
-        // Gate 3: installed version falls within the vulnerable range — npm only
-        // semver is reliable only for npm; other ecosystems use incompatible versioning schemes
         if (adv.ecosystem === 'npm' && adv.vulnerableVersionRange) {
             const installedVersion = installedPackages.get(packageName);
             if (installedVersion) {
                 const range = adv.vulnerableVersionRange.replace(/,\s*/g, ' ');
                 if ((0, semver_1.validRange)(range) && !(0, semver_1.satisfies)(installedVersion, range)) {
-                    core.info(`  [skip] ${adv.packageName}@${installedVersion} is not in vulnerable range "${adv.vulnerableVersionRange}"`);
+                    versionSkips.push({
+                        packageName: adv.packageName,
+                        installedVersion,
+                        advisoryRange: adv.vulnerableVersionRange,
+                    });
                     return false;
                 }
             }
         }
         return true;
     });
-    core.info(`  Result: ${advisories.length - filtered.length} discarded, ${filtered.length} confirmed threat(s).`);
-    return filtered;
+    return { confirmed, versionSkips };
 }
 
 
@@ -43388,8 +43297,6 @@ const guard_detector_1 = __nccwpck_require__(78681);
 const context_assembler_1 = __nccwpck_require__(48747);
 const prompt_builder_1 = __nccwpck_require__(75435);
 const llm_client_1 = __nccwpck_require__(83562);
-// Advisory IDs are cached between runs — skip the pipeline when the feed has not
-// changed since the last hourly scan.
 const STATE_FILE = '/tmp/vultool-advisory-state.json';
 const CACHE_KEY = `vultool-advisory-state-${process.env.GITHUB_REPOSITORY ?? 'local'}`;
 async function loadLastSeenGhsaIds() {
@@ -43412,6 +43319,31 @@ async function saveSeenGhsaIds(ids) {
         core.warning(`Could not save advisory state to cache: ${err instanceof Error ? err.message : String(err)}`);
     }
 }
+function buildAttackPathString(ctx) {
+    if (!ctx.entryPoint)
+        return 'entry point not traced';
+    const eifFnName = ctx.codeSlice.eifCallSites[0]?.callExpression.split('(')[0]?.trim() ?? ctx.threat.packageName;
+    const sortedEifCallers = [...ctx.codeSlice.callerSlices]
+        .sort((a, b) => {
+        if (a.sourceText.includes(b.functionName))
+            return -1;
+        if (b.sourceText.includes(a.functionName))
+            return 1;
+        return 0;
+    })
+        .map(s => s.functionName);
+    const chain = [
+        ctx.entryPoint.handlerFunction,
+        ...ctx.callChain.map(s => s.functionName),
+        ...sortedEifCallers,
+        `${eifFnName} (${ctx.threat.packageName})`,
+    ];
+    return `${ctx.entryPoint.identifier} → ${chain.join(' → ')}`;
+}
+function parseVerdict(report) {
+    const m = report.match(/VERDICT:\s*(EXPLOITABLE|CONDITIONALLY_EXPLOITABLE|NOT_EXPLOITABLE)/);
+    return m ? m[1] : null;
+}
 async function main() {
     try {
         const token = core.getInput('github_token', { required: true });
@@ -43420,179 +43352,190 @@ async function main() {
         const watchedGhsaIds = watchedGhsaRaw
             ? watchedGhsaRaw.split(',').map(s => s.trim()).filter(Boolean)
             : [];
+        const llmApiKey = core.getInput('llm_api_key');
         const demoMode = core.getInput('demo_mode') === 'true';
         core.setSecret(token);
         const repoName = process.env.GITHUB_REPOSITORY ?? 'unknown/unknown';
         const workspacePath = process.env.GITHUB_WORKSPACE || process.cwd();
-        core.info('=========================================');
-        core.info('      CTI VULNERABILITY SCANNER          ');
-        core.info('=========================================');
-        core.info(`  Repository : ${repoName}`);
-        core.info(`  Threshold  : ${threshold}`);
+        const HEAVY = '━'.repeat(60);
+        const LIGHT = '─'.repeat(60);
+        core.info(HEAVY);
+        core.info('  CTI VULNERABILITY SCANNER');
+        core.info(`  ${repoName}  |  Threshold: ${threshold}${demoMode ? '  |  Demo Mode' : ''}`);
+        core.info(HEAVY);
         core.info('');
-        // --- COMPONENT 1: ECOSYSTEM DETECTOR ---
+        // --- C1: ECOSYSTEM DETECTOR ---
         const { ecosystems: detectedEcosystems } = (0, ecosystem_detector_1.detectEcosystems)(workspacePath);
+        core.info(`  [C1] Ecosystem Detector     → ${detectedEcosystems.length > 0 ? detectedEcosystems.join(', ') : 'none'}`);
         if (detectedEcosystems.length === 0) {
-            core.info('No ecosystems detected. Exiting successfully.');
+            core.info('');
+            core.info('  No package manager files found — nothing to scan.');
+            core.info(HEAVY);
             return;
         }
-        // --- COMPONENT 2: ALERT FETCHER ---
-        core.info('');
+        // --- C2: ALERT FETCHER ---
         const rawAdvisories = await (0, alert_fetcher_1.fetchRecentAdvisories)(token, detectedEcosystems, watchedGhsaIds, demoMode);
+        core.info(`  [C2] Alert Fetcher          → ${rawAdvisories.length} advisories fetched${demoMode ? ' (demo feed)' : ''}`);
         if (rawAdvisories.length === 0) {
-            core.info('No recent advisories found. Exiting successfully.');
+            core.info('');
+            core.info('  No recent advisories from the CTI feed.');
+            core.info(HEAVY);
             return;
         }
-        // --- ADVISORY SKIP CHECK ---
+        // Advisory skip check — bypassed in demo mode so every run exercises the full pipeline
         const lastSeenIds = await loadLastSeenGhsaIds();
         const currentIds = new Set(rawAdvisories.map(a => a.ghsaId));
-        const hasNewIds = demoMode || lastSeenIds.size === 0 || [...currentIds].some(id => !lastSeenIds.has(id));
-        if (!hasNewIds) {
+        const newIds = [...currentIds].filter(id => !lastSeenIds.has(id));
+        if (!demoMode && lastSeenIds.size > 0 && newIds.length === 0) {
+            core.info('       No new advisories since last scan — pipeline skipped.');
             core.info('');
-            core.info('No new advisories since last scan — pipeline skipped. Next check in ~1 hour.');
+            core.info(HEAVY);
             return;
         }
-        const newCount = [...currentIds].filter(id => !lastSeenIds.has(id)).length;
-        core.info(`  ${newCount} new advisory ID(s) since last scan — proceeding with full pipeline.`);
-        // --- COMPONENT 3: DEPENDENCY MAPPER ---
-        core.info('');
+        if (!demoMode && lastSeenIds.size > 0 && newIds.length < rawAdvisories.length) {
+            core.info(`       ↳ ${newIds.length} new since last scan`);
+        }
+        // --- C3: DEPENDENCY MAPPER ---
         const installedPackages = await (0, dependency_mapper_1.getRepositoryDependencies)(token, workspacePath);
         if (installedPackages === null) {
-            core.error('CRITICAL PIPELINE HALT: Dependency Mapper failed. Check that the GitHub Dependency Graph is enabled for this repository.');
+            core.info(`  [C3] Dependency Mapper      → FAILED`);
+            core.info('');
+            core.info('  Dependency Mapper failed — verify the GitHub Dependency Graph is enabled.');
+            core.info(HEAVY);
             return;
         }
-        // --- COMPONENT 4: VULNERABILITY FILTER ---
-        core.info('');
-        const confirmedAdvisories = (0, vulnerability_filter_1.filterAdvisories)(rawAdvisories, threshold, installedPackages);
+        core.info(`  [C3] Dependency Mapper      → ${installedPackages.size} packages mapped`);
+        // --- C4: VULNERABILITY FILTER ---
+        const { confirmed: confirmedAdvisories, versionSkips } = (0, vulnerability_filter_1.filterAdvisories)(rawAdvisories, threshold, installedPackages);
+        const skippedCount = rawAdvisories.length - confirmedAdvisories.length;
+        core.info(`  [C4] Vulnerability Filter   → ${confirmedAdvisories.length} confirmed  (${skippedCount} skipped)`);
+        for (const s of versionSkips) {
+            core.info(`       ↳ ${s.packageName}@${s.installedVersion} — patched (not in range ${s.advisoryRange})`);
+        }
         if (confirmedAdvisories.length === 0) {
-            core.info('No matching vulnerabilities found in this repository.');
+            core.info('');
+            core.info('  No matching vulnerabilities found in this repository.');
             await saveSeenGhsaIds(currentIds);
+            core.info(HEAVY);
             return;
         }
-        // --- COMPONENT 5: DEPLOYMENT CLASSIFIER ---
-        core.info('');
+        // --- C5: DEPLOYMENT CLASSIFIER ---
         const contextualizedThreats = (0, deployment_classifier_1.classifyDeploymentContext)(confirmedAdvisories, workspacePath, detectedEcosystems);
-        // --- COMPONENT 6: REMEDIATION QUEUE ---
-        core.info('');
+        core.info(`  [C5] Deployment Classifier  → ${contextualizedThreats.length} threats classified`);
+        // --- C6: REMEDIATION QUEUE ---
         const sortedThreats = (0, remediation_queue_1.generateRemediationQueue)(contextualizedThreats);
-        // --- COMPONENT 7: AST ANALYZER (npm threats only) ---
-        core.info('');
+        core.info(`  [C6] Remediation Queue      → ${sortedThreats.length} threats queued`);
+        // --- C7: AST ANALYZER ---
         const npmThreats = sortedThreats.filter(t => t.ecosystem === 'npm');
         let codeSlices = [];
         if (npmThreats.length > 0) {
             codeSlices = await (0, ast_analyzer_1.analyzeCodeUsage)(npmThreats, workspacePath);
         }
-        else {
-            core.info('Component 7: No npm threats in queue — AST analysis skipped.');
-        }
-        // --- COMPONENT 8: PURPLE TEAM CONTEXT (tree-sitter) ---
-        core.info('');
-        // Populated by C8; consumed by C9 Prompt Builder → LLM Call → Risk Scorer (not yet implemented)
+        const c7Status = npmThreats.length === 0
+            ? 'no npm threats — skipped'
+            : codeSlices.length > 0
+                ? `${codeSlices.length} threat(s) with confirmed code usage`
+                : 'no direct code usage found';
+        core.info(`  [C7] AST Analyzer           → ${c7Status}`);
+        // --- C8: PURPLE TEAM CONTEXT ---
         const exploitContexts = [];
         if (codeSlices.length > 0) {
-            core.info('Component 8: Waking up Purple Team Context Analyzer (tree-sitter)...');
             for (const slice of codeSlices) {
                 const threat = sortedThreats.find(t => t.ghsaId === slice.threatGhsaId);
-                if (!threat) {
-                    core.warning(`No threat found for code slice ${slice.threatGhsaId} — skipping.`);
+                if (!threat)
                     continue;
-                }
-                core.info(`  Analyzing: ${slice.packageName}`);
                 const entryPoint = await (0, entry_point_detector_1.detectEntryPoint)(slice.callerSlices, workspacePath);
-                core.info(`  Entry point   : ${entryPoint ? entryPoint.identifier : 'not found'}`);
-                if (entryPoint) {
-                    core.info(`  Framework     : ${entryPoint.framework ?? 'unknown'}`);
-                    core.info(`  Handler fn    : ${entryPoint.handlerFunction}`);
-                    core.info(`  Attack surface: ${entryPoint.attackableSurface.join(', ') || 'none detected'}`);
-                }
                 const callChain = await (0, call_chain_builder_1.buildCallChain)(entryPoint, slice, workspacePath);
-                core.info(`  Call chain    : ${callChain.length === 0 ? 'direct (no intermediates)' : callChain.map(s => s.functionName).join(' → ')}`);
                 const guards = (0, guard_detector_1.detectGuards)(entryPoint, callChain, slice);
-                core.info(`  Guards found  : ${guards.guards.length === 0 ? 'none' : guards.guards.map(g => g.type).join(', ')}`);
-                core.info(`  Has auth      : ${guards.hasAuthentication}`);
-                core.info(`  Has validation: ${guards.hasInputValidation}`);
-                const ctx = (0, context_assembler_1.assembleContext)(threat, slice, entryPoint, callChain, guards);
-                exploitContexts.push(ctx);
-                core.info(`  Attack class  : ${ctx.attackClass}`);
-                core.info(`  Advisory info : ${ctx.advisoryRichness}`);
-                core.info('');
-                core.info('  ── Assembled Exploit Context ───────────────────────');
-                core.info(`  Package       : ${ctx.threat.packageName} (installed: ${ctx.codeSlice.affectedFiles.length} file(s))`);
-                core.info(`  Advisory      : ${ctx.threat.ghsaId} — ${ctx.threat.summary}`);
-                core.info(`  CWEs          : ${ctx.threat.cwes.map(c => `${c.cweId} (${c.name})`).join(', ') || 'none'}`);
-                core.info(`  CVSS          : ${ctx.threat.cvss ? `${ctx.threat.cvss.score} — ${ctx.threat.cvss.vectorString}` : 'n/a'}`);
-                core.info(`  Affected range: ${ctx.threat.vulnerableVersionRange ?? 'unknown'}`);
-                core.info(`  EIF caller(s) : ${ctx.codeSlice.callerSlices.map(c => `${c.functionName} (${c.file}:${c.startLine})`).join(', ')}`);
-                core.info(`  EIF call site : ${ctx.codeSlice.eifCallSites.map(s => `${s.callExpression} (line ${s.line})`).join(', ')}`);
-                if (ctx.entryPoint) {
-                    const eifFnName = ctx.codeSlice.eifCallSites[0]?.callExpression.split('(')[0]?.trim() ?? ctx.threat.packageName;
-                    // Sort EIF callers so that a caller whose body contains another caller's name
-                    // comes first — this reconstructs the correct topological call order.
-                    const sortedEifCallers = [...ctx.codeSlice.callerSlices]
-                        .sort((a, b) => {
-                        if (a.sourceText.includes(b.functionName))
-                            return -1;
-                        if (b.sourceText.includes(a.functionName))
-                            return 1;
-                        return 0;
-                    })
-                        .map(s => s.functionName);
-                    const chain = [
-                        ctx.entryPoint.handlerFunction,
-                        ...ctx.callChain.map(s => s.functionName),
-                        ...sortedEifCallers,
-                        `${eifFnName} (${ctx.threat.packageName})`,
-                    ];
-                    core.info(`  Attack path   : ${ctx.entryPoint.identifier} → ${chain.join(' → ')}`);
-                    core.info(`  Attack surface: ${ctx.entryPoint.attackableSurface.join(', ')}`);
-                }
-                else {
-                    core.info('  Attack path   : entry point not found — no direct attack path traced');
-                }
-                core.info(`  Guards        : ${ctx.guards.guards.length === 0 ? 'none' : ctx.guards.guards.map(g => `${g.type} (${g.file}:${g.line})`).join(', ')}`);
-                core.info('  ────────────────────────────────────────────────────');
+                exploitContexts.push((0, context_assembler_1.assembleContext)(threat, slice, entryPoint, callChain, guards));
             }
         }
-        else {
-            core.info('Component 8: No code slices to analyze — purple team skipped.');
-        }
-        // --- COMPONENT 9: LLM REMEDIATION GENERATOR ---
-        core.info('');
-        const llmApiKey = core.getInput('llm_api_key');
+        core.info(`  [C8] Purple Team            → ${exploitContexts.length > 0 ? `${exploitContexts.length} exploit context(s) assembled` : 'skipped — no confirmed code usage'}`);
+        // --- C9: LLM EXPLOIT ANALYZER ---
+        const llmReports = new Map();
         if (exploitContexts.length === 0) {
-            core.info('Component 9: No exploit contexts to analyse — LLM step skipped.');
+            core.info(`  [C9] LLM Exploit Analyzer   → skipped — no exploit contexts`);
         }
         else if (!llmApiKey) {
-            core.info('Component 9: No LLM API key provided — skipping exploit analysis.');
-            core.info('  Add llm_api_key to your workflow to enable AI-powered exploit analysis.');
+            core.info(`  [C9] LLM Exploit Analyzer   → skipped — no API key provided`);
         }
         else {
-            core.info('Component 9: Waking up LLM Exploit Analyzer...');
             for (const ctx of exploitContexts) {
-                core.info(`  Analyzing exploitability for: ${ctx.threat.packageName}`);
                 try {
-                    const prompt = (0, prompt_builder_1.buildExploitPrompt)(ctx);
-                    const report = await (0, llm_client_1.callLLM)(llmApiKey, prompt);
-                    core.info('');
-                    core.info('  ── LLM Exploit Analysis ────────────────────────────');
-                    core.info(`  Package : ${ctx.threat.packageName} (${ctx.threat.ghsaId})`);
-                    core.info('');
-                    report.split('\n').forEach(line => core.info(`  ${line}`));
-                    core.info('  ────────────────────────────────────────────────────');
+                    const report = await (0, llm_client_1.callLLM)(llmApiKey, (0, prompt_builder_1.buildExploitPrompt)(ctx));
+                    llmReports.set(ctx.threat.ghsaId, report);
                 }
                 catch (err) {
                     core.warning(`  LLM call failed for ${ctx.threat.packageName}: ${err instanceof Error ? err.message : String(err)}`);
                 }
             }
+            core.info(`  [C9] LLM Exploit Analyzer   → ${llmReports.size} analysis complete`);
         }
         await saveSeenGhsaIds(currentIds);
+        // ── THREAT QUEUE ──────────────────────────────────────────────────────────
         core.info('');
-        core.info('=========================================');
-        core.info('           PIPELINE COMPLETE             ');
-        core.info('=========================================');
-        core.info(`  Threats confirmed : ${sortedThreats.length}`);
-        core.info(`  Active code usage : ${codeSlices.length} threat(s) with confirmed call sites`);
+        core.info(LIGHT);
+        core.info('  THREAT QUEUE');
+        core.info(LIGHT);
         core.info('');
+        for (let i = 0; i < sortedThreats.length; i++) {
+            const t = sortedThreats[i];
+            const ctx = exploitContexts.find(c => c.threat.ghsaId === t.ghsaId);
+            core.info(`  #${i + 1}  ${t.packageName.padEnd(22)} ${t.severity.padEnd(10)} ${t.ghsaId}`);
+            core.info(`       ${t.summary}`);
+            core.info(`       Vulnerable : ${t.vulnerableVersionRange ?? 'unknown'}   →   Fix: ${t.firstPatchedVersion ?? 'no patch available'}`);
+            core.info(`       Risk       : ${t.isDevDependency ? 'Dev dependency' : 'Production'}`);
+            if (ctx) {
+                const guardStr = ctx.guards.guards.length === 0
+                    ? 'none'
+                    : ctx.guards.guards.map(g => g.type).join(', ');
+                core.info(`       Attack path: ${buildAttackPathString(ctx)}`);
+                core.info(`       Guards     : ${guardStr}`);
+            }
+            else {
+                core.info(`       Code usage : not confirmed — static risk only`);
+            }
+            core.info('');
+        }
+        // ── EXPLOIT ANALYSIS ─────────────────────────────────────────────────────
+        if (llmReports.size > 0) {
+            for (const ctx of exploitContexts) {
+                const report = llmReports.get(ctx.threat.ghsaId);
+                if (!report)
+                    continue;
+                core.info(LIGHT);
+                core.info(`  EXPLOIT ANALYSIS  —  ${ctx.threat.packageName}  (${ctx.threat.ghsaId})`);
+                core.info(LIGHT);
+                core.info('');
+                for (const line of report.split('\n')) {
+                    core.info(`  ${line}`);
+                }
+                core.info('');
+            }
+        }
+        // ── FOOTER ────────────────────────────────────────────────────────────────
+        const verdicts = [...llmReports.values()].map(parseVerdict).filter(Boolean);
+        const exploitable = verdicts.filter(v => v === 'EXPLOITABLE').length;
+        const conditional = verdicts.filter(v => v === 'CONDITIONALLY_EXPLOITABLE').length;
+        const notExploitable = verdicts.filter(v => v === 'NOT_EXPLOITABLE').length;
+        core.info(HEAVY);
+        core.info('  PIPELINE COMPLETE');
+        const parts = [
+            `${sortedThreats.length} threat(s) confirmed`,
+            `${codeSlices.length} with active code usage`,
+        ];
+        if (verdicts.length > 0) {
+            const vParts = [];
+            if (exploitable > 0)
+                vParts.push(`EXPLOITABLE: ${exploitable}`);
+            if (conditional > 0)
+                vParts.push(`CONDITIONAL: ${conditional}`);
+            if (notExploitable > 0)
+                vParts.push(`NOT EXPLOITABLE: ${notExploitable}`);
+            parts.push(vParts.join('  '));
+        }
+        core.info(`  ${parts.join('  |  ')}`);
+        core.info(HEAVY);
     }
     catch (error) {
         if (error instanceof Error) {

@@ -6,9 +6,6 @@ export function detectEcosystems(workspacePath: string): { ecosystems: string[] 
   const ecosystems: string[] = [];
 
   try {
-    core.info('Component 1: Waking up Ecosystem Detector...');
-    core.info(`Scanning workspace: ${workspacePath}`);
-
     const signatures = [
       { file: 'package.json',     ecosystem: 'npm'      },
       { file: 'requirements.txt', ecosystem: 'pip'      },
@@ -32,7 +29,6 @@ export function detectEcosystems(workspacePath: string): { ecosystems: string[] 
     for (const sig of signatures) {
       const fullPath = path.join(workspacePath, sig.file);
       if (fs.existsSync(fullPath)) {
-        core.info(`Found signature file: ${sig.file} -> Target Ecosystem: ${sig.ecosystem}`);
         if (!ecosystems.includes(sig.ecosystem)) {
           ecosystems.push(sig.ecosystem);
         }
@@ -48,10 +44,6 @@ export function detectEcosystems(workspacePath: string): { ecosystems: string[] 
           ecosystems.push('nuget');
         }
       } catch { /* non-critical */ }
-    }
-
-    if (ecosystems.length === 0) {
-      core.notice('No recognizable package manager files found. Pipeline halting safely.');
     }
 
   } catch (error) {

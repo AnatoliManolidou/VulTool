@@ -177,9 +177,6 @@ function fetchDemoAdvisories(sampleSize: number): Advisory[] {
     ecosystem:              (v.package.ecosystem as string).toLowerCase() as Ecosystem,
   }));
 
-  core.info(`  Loaded ${nodes.length} node(s) from demo feed — serving ${advisories.length} this run:`);
-  advisories.forEach((a, i) => core.info(`  [${i + 1}] ${a.packageName} ${a.vulnerableVersionRange ?? ''} — ${a.summary} (${a.severity})`));
-
   return advisories;
 }
 
@@ -191,10 +188,7 @@ export async function fetchRecentAdvisories(
   watchedGhsaIds: string[] = [],
   demoMode: boolean = false,
 ): Promise<Advisory[]> {
-  core.info('Component 2: Waking up Alert Fetcher...');
-
   if (demoMode) {
-    core.info('  [DEMO MODE] Using bundled advisory feed (live GitHub feed bypassed).');
     return fetchDemoAdvisories(8);
   }
 

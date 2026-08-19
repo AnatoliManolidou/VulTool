@@ -1,6 +1,5 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import * as core from '@actions/core';
 import { Advisory, Threat } from '../types';
 
 const SEVERITY_WEIGHTS: Record<string, number> = {
@@ -228,8 +227,6 @@ function extractErlangDevDeps(workspacePath: string, devDeps: Set<string>): void
 }
 
 export function classifyDeploymentContext(advisories: Advisory[], workspacePath: string, ecosystems: string[]): Threat[] {
-  core.info('Component 5: Waking up Deployment Classifier...');
-
   const devDependencies = new Set<string>();
 
   if (ecosystems.includes('npm'))      extractNpmDevDeps(workspacePath, devDependencies);
@@ -243,8 +240,6 @@ export function classifyDeploymentContext(advisories: Advisory[], workspacePath:
   if (ecosystems.includes('erlang'))   extractErlangDevDeps(workspacePath, devDependencies);
   // Go and Swift have no dev-dependency distinction — all deps are treated as production
 
-  core.info(`Identified ${devDependencies.size} dev-only packages across all ecosystems.`);
-
   const assessedThreats: Threat[] = advisories.map(advisory => {
     const isDev = devDependencies.has(advisory.packageName?.toLowerCase());
     const contextTag = isDev
@@ -255,8 +250,6 @@ export function classifyDeploymentContext(advisories: Advisory[], workspacePath:
     const severityWeight = SEVERITY_WEIGHTS[advisory.severity?.toUpperCase()] || 0;
     const priorityScore  = severityWeight * 10 + (isDev ? 0 : 5);
 
-    core.info(`  ${advisory.packageName} [${advisory.severity}] → ${contextTag} (score: ${priorityScore})`);
-
     return {
       ...advisory,
       contextualRisk:  contextTag,
@@ -265,6 +258,5 @@ export function classifyDeploymentContext(advisories: Advisory[], workspacePath:
     };
   });
 
-  core.info(`Classified ${assessedThreats.length} threat(s).`);
   return assessedThreats;
 }
