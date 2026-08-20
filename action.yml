@@ -17,6 +17,9 @@ inputs:
     description: 'Comma-separated GHSA IDs to always fetch regardless of live feed position (e.g. GHSA-36jr-mh4h-2g58,GHSA-abc1-def2-ghi3)'
     required: false
     default: ''
+  discord_webhook_url:
+    description: 'Discord webhook URL for pipeline notifications (optional — no notification sent if omitted)'
+    required: false
 
 runs:
   using: 'node24'
