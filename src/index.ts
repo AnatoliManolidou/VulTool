@@ -134,6 +134,24 @@ function buildDiscordPayload(
   };
 }
 
+function buildDiscordCleanPayload(repoName: string, scanned: number, skipped: number): object {
+  const runUrl = `https://github.com/${repoName}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`;
+  return {
+    embeds: [{
+      title:  '✅ Clean Scan — No Threats Confirmed',
+      color:  3066993,
+      fields: [
+        { name: 'Repository', value: repoName,           inline: true },
+        { name: 'Scanned',    value: `${scanned} advisories from CTI feed`, inline: true },
+        { name: 'Result',     value: `${skipped} filtered — none match your stack`, inline: false },
+      ],
+      url:       runUrl,
+      timestamp: new Date().toISOString(),
+      footer:    { text: 'VulTool CTI Scanner' },
+    }],
+  };
+}
+
 function buildDiscordErrorPayload(repoName: string, message: string): object {
   const runUrl = `https://github.com/${repoName}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`;
   return {
@@ -234,6 +252,12 @@ async function main() {
       core.info('  No matching vulnerabilities found in this repository.');
       await saveSeenGhsaIds(currentIds);
       core.info(HEAVY);
+      if (discordWebhook) {
+        await sendDiscordNotification(
+          discordWebhook,
+          buildDiscordCleanPayload(repoName, rawAdvisories.length, skippedCount),
+        );
+      }
       return;
     }
 
