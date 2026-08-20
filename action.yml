@@ -21,6 +21,9 @@ inputs:
     description: 'Use the bundled advisory feed instead of the live GitHub feed (randomly samples 8 of 20 advisories per run)'
     required: false
     default: 'false'
+  discord_webhook_url:
+    description: 'Discord webhook URL for pipeline notifications (optional — no notification sent if omitted)'
+    required: false
 
 runs:
   using: 'node24'

@@ -43147,14 +43147,14 @@ VERDICT: <EXPLOITABLE|CONDITIONALLY_EXPLOITABLE|NOT_EXPLOITABLE> — <one senten
 
 /***/ }),
 
-/***/ 89331:
+/***/ 32546:
 /***/ ((__unused_webpack_module, exports) => {
 
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.generateRemediationQueue = generateRemediationQueue;
-function generateRemediationQueue(threats) {
+exports.prioritizeThreats = prioritizeThreats;
+function prioritizeThreats(threats) {
     return [...threats].sort((a, b) => b.priorityScore - a.priorityScore);
 }
 
@@ -43289,7 +43289,7 @@ const alert_fetcher_1 = __nccwpck_require__(10884);
 const dependency_mapper_1 = __nccwpck_require__(70645);
 const vulnerability_filter_1 = __nccwpck_require__(7213);
 const deployment_classifier_1 = __nccwpck_require__(78127);
-const remediation_queue_1 = __nccwpck_require__(89331);
+const threat_prioritizer_1 = __nccwpck_require__(32546);
 const ast_analyzer_1 = __nccwpck_require__(19999);
 const entry_point_detector_1 = __nccwpck_require__(85367);
 const call_chain_builder_1 = __nccwpck_require__(9285);
@@ -43340,6 +43340,91 @@ function buildAttackPathString(ctx) {
     ];
     return `${ctx.entryPoint.identifier} → ${chain.join(' → ')}`;
 }
+async function sendDiscordNotification(webhookUrl, payload) {
+    try {
+        await fetch(webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+    }
+    catch { /* notification failure must never crash the pipeline */ }
+}
+function buildDiscordPayload(repoName, sortedThreats, exploitContexts, llmReports, verdicts) {
+    const runUrl = `https://github.com/${repoName}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`;
+    const exploitable = verdicts.filter(v => v === 'EXPLOITABLE').length;
+    const conditional = verdicts.filter(v => v === 'CONDITIONALLY_EXPLOITABLE').length;
+    const notExploitable = verdicts.filter(v => v === 'NOT_EXPLOITABLE').length;
+    let color;
+    let title;
+    if (exploitable > 0) {
+        color = 15158332;
+        title = '🚨 EXPLOITABLE THREAT DETECTED';
+    }
+    else if (conditional > 0) {
+        color = 15105570;
+        title = '⚠️ Conditional Exploit Confirmed';
+    }
+    else if (llmReports.size > 0) {
+        color = 3066993;
+        title = '✅ Threats Analyzed — Not Exploitable';
+    }
+    else {
+        color = 3447003;
+        title = '🔵 Threats Confirmed — No Exploit Analysis';
+    }
+    const fields = [
+        { name: 'Repository', value: repoName, inline: true },
+        { name: 'Threats', value: `${sortedThreats.length} confirmed`, inline: true },
+    ];
+    if (verdicts.length > 0) {
+        const parts = [];
+        if (exploitable > 0)
+            parts.push(`EXPLOITABLE: ${exploitable}`);
+        if (conditional > 0)
+            parts.push(`CONDITIONAL: ${conditional}`);
+        if (notExploitable > 0)
+            parts.push(`NOT EXPLOITABLE: ${notExploitable}`);
+        fields.push({ name: 'Verdicts', value: parts.join(' | '), inline: false });
+    }
+    for (const t of sortedThreats.slice(0, 3)) {
+        const report = llmReports.get(t.ghsaId);
+        const verdict = report ? parseVerdict(report) : null;
+        const ctx = exploitContexts.find(c => c.threat.ghsaId === t.ghsaId);
+        const lines = [
+            `${t.severity}  |  ${t.ghsaId}`,
+            t.firstPatchedVersion ? `Fix: upgrade to ${t.firstPatchedVersion}` : 'No patch available',
+        ];
+        if (ctx)
+            lines.push(buildAttackPathString(ctx));
+        if (verdict)
+            lines.push(`**${verdict}**`);
+        fields.push({ name: t.packageName, value: lines.join('\n'), inline: false });
+    }
+    return {
+        embeds: [{
+                title,
+                color,
+                fields,
+                url: runUrl,
+                timestamp: new Date().toISOString(),
+                footer: { text: 'VulTool CTI Scanner' },
+            }],
+    };
+}
+function buildDiscordErrorPayload(repoName, message) {
+    const runUrl = `https://github.com/${repoName}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`;
+    return {
+        embeds: [{
+                title: '❌ VulTool Pipeline Error',
+                description: message,
+                color: 15158332,
+                url: runUrl,
+                timestamp: new Date().toISOString(),
+                footer: { text: 'VulTool CTI Scanner' },
+            }],
+    };
+}
 function parseVerdict(report) {
     const m = report.match(/VERDICT:\s*(EXPLOITABLE|CONDITIONALLY_EXPLOITABLE|NOT_EXPLOITABLE)/);
     return m ? m[1] : null;
@@ -43353,6 +43438,7 @@ async function main() {
             ? watchedGhsaRaw.split(',').map(s => s.trim()).filter(Boolean)
             : [];
         const llmApiKey = core.getInput('llm_api_key');
+        const discordWebhook = core.getInput('discord_webhook_url');
         const demoMode = core.getInput('demo_mode') === 'true';
         core.setSecret(token);
         const repoName = process.env.GITHUB_REPOSITORY ?? 'unknown/unknown';
@@ -43423,8 +43509,8 @@ async function main() {
         const contextualizedThreats = (0, deployment_classifier_1.classifyDeploymentContext)(confirmedAdvisories, workspacePath, detectedEcosystems);
         core.info(`  [C5] Deployment Classifier  → ${contextualizedThreats.length} threats classified`);
         // --- C6: REMEDIATION QUEUE ---
-        const sortedThreats = (0, remediation_queue_1.generateRemediationQueue)(contextualizedThreats);
-        core.info(`  [C6] Remediation Queue      → ${sortedThreats.length} threats queued`);
+        const sortedThreats = (0, threat_prioritizer_1.prioritizeThreats)(contextualizedThreats);
+        core.info(`  [C6] Threat Prioritizer     → ${sortedThreats.length} threats queued`);
         // --- C7: AST ANALYZER ---
         const npmThreats = sortedThreats.filter(t => t.ecosystem === 'npm');
         let codeSlices = [];
@@ -43536,10 +43622,18 @@ async function main() {
         }
         core.info(`  ${parts.join('  |  ')}`);
         core.info(HEAVY);
+        if (discordWebhook) {
+            await sendDiscordNotification(discordWebhook, buildDiscordPayload(repoName, sortedThreats, exploitContexts, llmReports, verdicts));
+        }
     }
     catch (error) {
         if (error instanceof Error) {
             core.setFailed(`Pipeline crashed: ${error.message}`);
+            const discordWebhook = core.getInput('discord_webhook_url');
+            if (discordWebhook) {
+                const repoName = process.env.GITHUB_REPOSITORY ?? 'unknown/unknown';
+                await sendDiscordNotification(discordWebhook, buildDiscordErrorPayload(repoName, error.message));
+            }
         }
     }
 }
