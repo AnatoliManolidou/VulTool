@@ -81,6 +81,7 @@ function buildDiscordPayload(
   const exploitable    = verdicts.filter(v => v === 'EXPLOITABLE').length;
   const conditional    = verdicts.filter(v => v === 'CONDITIONALLY_EXPLOITABLE').length;
   const notExploitable = verdicts.filter(v => v === 'NOT_EXPLOITABLE').length;
+  const refused        = verdicts.filter(v => v === 'REFUSED').length;
 
   let color: number;
   let title: string;
@@ -88,8 +89,10 @@ function buildDiscordPayload(
     color = 15158332; title = '🚨 EXPLOITABLE THREAT DETECTED';
   } else if (conditional > 0) {
     color = 15105570; title = '⚠️ Conditional Exploit Confirmed';
-  } else if (llmReports.size > 0) {
+  } else if (llmReports.size > 0 && refused < llmReports.size) {
     color = 3066993;  title = '✅ Threats Analyzed — Not Exploitable';
+  } else if (refused > 0) {
+    color = 10197915; title = '⚠️ Model Refused Analysis';
   } else {
     color = 3447003;  title = '🔵 Threats Confirmed — No Exploit Analysis';
   }
@@ -104,6 +107,7 @@ function buildDiscordPayload(
     if (exploitable > 0)    parts.push(`EXPLOITABLE: ${exploitable}`);
     if (conditional > 0)    parts.push(`CONDITIONAL: ${conditional}`);
     if (notExploitable > 0) parts.push(`NOT EXPLOITABLE: ${notExploitable}`);
+    if (refused > 0)        parts.push(`REFUSED: ${refused}`);
     fields.push({ name: 'Verdicts', value: parts.join(' | '), inline: false });
   }
 
@@ -150,7 +154,11 @@ function buildDiscordErrorPayload(repoName: string, message: string): object {
 
 function parseVerdict(report: string): string | null {
   const m = report.match(/VERDICT:\s*(EXPLOITABLE|CONDITIONALLY_EXPLOITABLE|NOT_EXPLOITABLE)/);
-  return m ? m[1] : null;
+  if (m) return m[1];
+  if (/I(?:'m| am) (?:sorry|unable|not able)|I can(?:'t|not) (?:help|assist)/i.test(report)) {
+    return 'REFUSED';
+  }
+  return null;
 }
 
 async function main() {
@@ -252,11 +260,17 @@ async function main() {
     if (npmThreats.length > 0) {
       codeSlices = await analyzeCodeUsage(npmThreats, workspacePath);
     }
+    const directSlices   = codeSlices.filter(s => !s.isIndirect);
+    const indirectSlices = codeSlices.filter(s =>  s.isIndirect);
     const c7Status = npmThreats.length === 0
       ? 'no npm threats — skipped'
-      : codeSlices.length > 0
-        ? `${codeSlices.length} threat(s) with confirmed code usage`
-        : 'no direct code usage found';
+      : directSlices.length > 0 && indirectSlices.length > 0
+        ? `${directSlices.length} direct + ${indirectSlices.length} indirect usage(s) traced`
+        : directSlices.length > 0
+          ? `${directSlices.length} threat(s) with confirmed direct usage`
+          : indirectSlices.length > 0
+            ? `${indirectSlices.length} indirect usage(s) via transitive dep`
+            : 'no code usage found';
     core.info(`  [C7] AST Analyzer           → ${c7Status}`);
 
     // --- C8: PURPLE TEAM CONTEXT ---
@@ -310,10 +324,13 @@ async function main() {
       core.info(`       Risk       : ${t.isDevDependency ? 'Dev dependency' : 'Production'}`);
 
       if (ctx) {
-        const guardStr = ctx.guards.guards.length === 0
+        const guardStr  = ctx.guards.guards.length === 0
           ? 'none'
           : ctx.guards.guards.map(g => g.type).join(', ');
-        core.info(`       Attack path: ${buildAttackPathString(ctx)}`);
+        const pathLabel = ctx.codeSlice.isIndirect
+          ? `Indirect path: ${buildAttackPathString(ctx)}  (via ${ctx.codeSlice.viaPackage})`
+          : `Attack path: ${buildAttackPathString(ctx)}`;
+        core.info(`       ${pathLabel}`);
         core.info(`       Guards     : ${guardStr}`);
       } else {
         core.info(`       Code usage : not confirmed — static risk only`);
@@ -332,8 +349,13 @@ async function main() {
         core.info(`  EXPLOIT ANALYSIS  —  ${ctx.threat.packageName}  (${ctx.threat.ghsaId})`);
         core.info(LIGHT);
         core.info('');
-        for (const line of report.split('\n')) {
-          core.info(`  ${line}`);
+        if (parseVerdict(report) === 'REFUSED') {
+          core.info(`  [!] Model refused to analyze this advisory.`);
+          core.info(`      Switch to a security-capable model for full exploit analysis.`);
+        } else {
+          for (const line of report.split('\n')) {
+            core.info(`  ${line}`);
+          }
         }
         core.info('');
       }
@@ -344,6 +366,7 @@ async function main() {
     const exploitable    = verdicts.filter(v => v === 'EXPLOITABLE').length;
     const conditional    = verdicts.filter(v => v === 'CONDITIONALLY_EXPLOITABLE').length;
     const notExploitable = verdicts.filter(v => v === 'NOT_EXPLOITABLE').length;
+    const refused        = verdicts.filter(v => v === 'REFUSED').length;
 
     core.info(HEAVY);
     core.info('  PIPELINE COMPLETE');
@@ -356,6 +379,7 @@ async function main() {
       if (exploitable > 0)    vParts.push(`EXPLOITABLE: ${exploitable}`);
       if (conditional > 0)    vParts.push(`CONDITIONAL: ${conditional}`);
       if (notExploitable > 0) vParts.push(`NOT EXPLOITABLE: ${notExploitable}`);
+      if (refused > 0)        vParts.push(`REFUSED: ${refused}`);
       parts.push(vParts.join('  '));
     }
     core.info(`  ${parts.join('  |  ')}`);
