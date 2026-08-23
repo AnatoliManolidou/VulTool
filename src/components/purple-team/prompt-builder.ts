@@ -21,6 +21,14 @@ export function buildExploitPrompt(ctx: ExploitContext): string {
     ? 'None detected — the attack path has no authentication, input validation, or rate-limiting guards.'
     : guards.guards.map(g => `${g.type} at ${g.file}:${g.line} — \`${g.code}\``).join('\n');
 
+  const indirectNote = codeSlice.isIndirect
+    ? `\nINDIRECT PATH: The user's code does not import ${threat.packageName} directly. ` +
+      `It imports "${codeSlice.viaPackage}", which depends on ${threat.packageName} internally. ` +
+      `The call sites below show calls to "${codeSlice.viaPackage}" — assess whether ` +
+      `attacker-controlled data flowing through those calls can trigger the underlying ` +
+      `${threat.packageName} vulnerability.`
+    : '';
+
   const cwes = threat.cwes.map(c => `${c.cweId} (${c.name})`).join(', ') || 'none';
   const cvss = threat.cvss ? `${threat.cvss.score} — ${threat.cvss.vectorString}` : 'not available';
   const patchedIn = threat.firstPatchedVersion ?? 'no patch available';
@@ -48,9 +56,9 @@ CODE ANALYSIS
 ═══════════════════════════════════════════════
 Attack path    : ${attackPath}
 Attack surface : ${entryPoint?.attackableSurface.join(', ') || 'unknown'}
-Guards         : ${guardSummary}
+Guards         : ${guardSummary}${indirectNote}
 
-EIF call sites (where this codebase calls into the vulnerable package):
+EIF call sites (where this codebase calls into the ${codeSlice.isIndirect ? `"${codeSlice.viaPackage}" consumer package` : 'vulnerable package'}):
 ${codeSlice.eifCallSites.map(s => `  ${s.callExpression} (line ${s.line})`).join('\n')}
 
 Caller function source code:

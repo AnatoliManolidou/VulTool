@@ -41488,9 +41488,110 @@ function buildModuleLevelSlice(callNode, source, file) {
         endLine: endLine + 1,
     };
 }
+function readDirectDependencies(workspacePath) {
+    try {
+        const pkg = JSON.parse(fs.readFileSync(path.join(workspacePath, 'package.json'), 'utf8'));
+        return new Set([
+            ...Object.keys(pkg.dependencies ?? {}),
+            ...Object.keys(pkg.devDependencies ?? {}),
+        ]);
+    }
+    catch {
+        return new Set();
+    }
+}
+function findConsumerPackages(vulnerablePackage, directDeps, workspacePath) {
+    const consumers = [];
+    const nodeModulesPath = path.join(workspacePath, 'node_modules');
+    for (const dep of directDeps) {
+        const pkgJsonPath = path.join(nodeModulesPath, dep, 'package.json');
+        try {
+            const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+            if (pkg.dependencies?.[vulnerablePackage] || pkg.peerDependencies?.[vulnerablePackage]) {
+                consumers.push(dep);
+            }
+        }
+        catch { /* dep not in node_modules — skip */ }
+    }
+    return consumers;
+}
+function findIndirectUsage(threat, consumers, sourceFiles, workspacePath) {
+    if (!parser || !jsLanguage)
+        return null;
+    for (const consumer of consumers) {
+        const affectedFiles = [];
+        const sourceCaches = new Map();
+        for (const file of sourceFiles) {
+            try {
+                const source = fs.readFileSync(file, 'utf8');
+                if (fileImportsPackage(source, consumer)) {
+                    affectedFiles.push(file);
+                    sourceCaches.set(file, source);
+                }
+            }
+            catch {
+                continue;
+            }
+        }
+        if (affectedFiles.length === 0)
+            continue;
+        const eifCallSites = [];
+        const callerSlices = [];
+        for (const file of affectedFiles) {
+            const source = sourceCaches.get(file);
+            parser.setLanguage(jsLanguage);
+            const tree = parser.parse(source);
+            const bindings = extractImportBindings(tree, consumer);
+            if (bindings.size === 0)
+                continue;
+            const eifNodes = findEIFNodes(tree, bindings);
+            for (const node of eifNodes) {
+                const text = node.text;
+                eifCallSites.push({
+                    file,
+                    line: node.startPosition.row + 1,
+                    callExpression: text.length > 120 ? text.slice(0, 120) + '...' : text,
+                });
+            }
+            const seenFunctions = new Set();
+            for (const node of eifNodes) {
+                const fn = getEnclosingFunction(node);
+                if (fn) {
+                    const key = `${file}:${fn.startPosition.row}`;
+                    if (seenFunctions.has(key))
+                        continue;
+                    seenFunctions.add(key);
+                    callerSlices.push(buildCallerSlice(fn, source, file));
+                }
+                else {
+                    const key = `${file}:module:${node.startPosition.row}`;
+                    if (seenFunctions.has(key))
+                        continue;
+                    seenFunctions.add(key);
+                    callerSlices.push(buildModuleLevelSlice(node, source, file));
+                }
+            }
+        }
+        if (eifCallSites.length > 0) {
+            return {
+                threatGhsaId: threat.ghsaId,
+                packageName: threat.packageName,
+                severity: threat.severity,
+                priorityScore: threat.priorityScore,
+                affectedFiles,
+                eifCallSites,
+                callerSlices,
+                isIndirect: true,
+                viaPackage: consumer,
+            };
+        }
+    }
+    return null;
+}
 async function analyzeCodeUsage(npmThreats, workspacePath) {
     await initParser();
     const sourceFiles = findSourceFiles(workspacePath);
+    const directDeps = readDirectDependencies(workspacePath);
     const results = [];
     for (const threat of npmThreats) {
         const affectedFiles = [];
@@ -41505,8 +41606,13 @@ async function analyzeCodeUsage(npmThreats, workspacePath) {
             }
             catch { /* unreadable — skip */ }
         }
-        if (affectedFiles.length === 0)
+        if (affectedFiles.length === 0) {
+            const consumers = findConsumerPackages(threat.packageName, directDeps, workspacePath);
+            const indirectSlice = findIndirectUsage(threat, consumers, sourceFiles, workspacePath);
+            if (indirectSlice)
+                results.push(indirectSlice);
             continue;
+        }
         const eifCallSites = [];
         const callerSlices = [];
         for (const file of affectedFiles) {
@@ -43049,6 +43155,13 @@ function buildExploitPrompt(ctx) {
     const guardSummary = guards.guards.length === 0
         ? 'None detected — the attack path has no authentication, input validation, or rate-limiting guards.'
         : guards.guards.map(g => `${g.type} at ${g.file}:${g.line} — \`${g.code}\``).join('\n');
+    const indirectNote = codeSlice.isIndirect
+        ? `\nINDIRECT PATH: The user's code does not import ${threat.packageName} directly. ` +
+            `It imports "${codeSlice.viaPackage}", which depends on ${threat.packageName} internally. ` +
+            `The call sites below show calls to "${codeSlice.viaPackage}" — assess whether ` +
+            `attacker-controlled data flowing through those calls can trigger the underlying ` +
+            `${threat.packageName} vulnerability.`
+        : '';
     const cwes = threat.cwes.map(c => `${c.cweId} (${c.name})`).join(', ') || 'none';
     const cvss = threat.cvss ? `${threat.cvss.score} — ${threat.cvss.vectorString}` : 'not available';
     const patchedIn = threat.firstPatchedVersion ?? 'no patch available';
@@ -43075,9 +43188,9 @@ CODE ANALYSIS
 ═══════════════════════════════════════════════
 Attack path    : ${attackPath}
 Attack surface : ${entryPoint?.attackableSurface.join(', ') || 'unknown'}
-Guards         : ${guardSummary}
+Guards         : ${guardSummary}${indirectNote}
 
-EIF call sites (where this codebase calls into the vulnerable package):
+EIF call sites (where this codebase calls into the ${codeSlice.isIndirect ? `"${codeSlice.viaPackage}" consumer package` : 'vulnerable package'}):
 ${codeSlice.eifCallSites.map(s => `  ${s.callExpression} (line ${s.line})`).join('\n')}
 
 Caller function source code:
@@ -43497,11 +43610,17 @@ async function main() {
         if (npmThreats.length > 0) {
             codeSlices = await (0, ast_analyzer_1.analyzeCodeUsage)(npmThreats, workspacePath);
         }
+        const directSlices = codeSlices.filter(s => !s.isIndirect);
+        const indirectSlices = codeSlices.filter(s => s.isIndirect);
         const c7Status = npmThreats.length === 0
             ? 'no npm threats — skipped'
-            : codeSlices.length > 0
-                ? `${codeSlices.length} threat(s) with confirmed code usage`
-                : 'no direct code usage found';
+            : directSlices.length > 0 && indirectSlices.length > 0
+                ? `${directSlices.length} direct + ${indirectSlices.length} indirect usage(s) traced`
+                : directSlices.length > 0
+                    ? `${directSlices.length} threat(s) with confirmed direct usage`
+                    : indirectSlices.length > 0
+                        ? `${indirectSlices.length} indirect usage(s) via transitive dep`
+                        : 'no code usage found';
         core.info(`  [C7] AST Analyzer           → ${c7Status}`);
         // --- C8: PURPLE TEAM CONTEXT ---
         const exploitContexts = [];
@@ -43555,7 +43674,10 @@ async function main() {
                 const guardStr = ctx.guards.guards.length === 0
                     ? 'none'
                     : ctx.guards.guards.map(g => g.type).join(', ');
-                core.info(`       Attack path: ${buildAttackPathString(ctx)}`);
+                const pathLabel = ctx.codeSlice.isIndirect
+                    ? `Indirect path: ${buildAttackPathString(ctx)}  (via ${ctx.codeSlice.viaPackage})`
+                    : `Attack path: ${buildAttackPathString(ctx)}`;
+                core.info(`       ${pathLabel}`);
                 core.info(`       Guards     : ${guardStr}`);
             }
             else {

@@ -25,6 +25,8 @@ export interface CodeSlice {
   affectedFiles: string[];
   eifCallSites: EIFCallSite[];
   callerSlices: CallerSlice[];
+  isIndirect?: boolean;
+  viaPackage?: string;
 }
 
 // tree-sitter.wasm and tree-sitter-javascript.wasm are copied to dist/ by postbuild.
@@ -233,14 +235,128 @@ function buildModuleLevelSlice(callNode: Parser.SyntaxNode, source: string, file
   };
 }
 
+function readDirectDependencies(workspacePath: string): Set<string> {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(workspacePath, 'package.json'), 'utf8'));
+    return new Set([
+      ...Object.keys(pkg.dependencies    ?? {}),
+      ...Object.keys(pkg.devDependencies ?? {}),
+    ]);
+  } catch {
+    return new Set();
+  }
+}
+
+function findConsumerPackages(
+  vulnerablePackage: string,
+  directDeps: Set<string>,
+  workspacePath: string,
+): string[] {
+  const consumers: string[] = [];
+  const nodeModulesPath = path.join(workspacePath, 'node_modules');
+
+  for (const dep of directDeps) {
+    const pkgJsonPath = path.join(nodeModulesPath, dep, 'package.json');
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+      if (pkg.dependencies?.[vulnerablePackage] || pkg.peerDependencies?.[vulnerablePackage]) {
+        consumers.push(dep);
+      }
+    } catch { /* dep not in node_modules — skip */ }
+  }
+
+  return consumers;
+}
+
+function findIndirectUsage(
+  threat: Threat,
+  consumers: string[],
+  sourceFiles: string[],
+  workspacePath: string,
+): CodeSlice | null {
+  if (!parser || !jsLanguage) return null;
+
+  for (const consumer of consumers) {
+    const affectedFiles: string[] = [];
+    const sourceCaches = new Map<string, string>();
+
+    for (const file of sourceFiles) {
+      try {
+        const source = fs.readFileSync(file, 'utf8');
+        if (fileImportsPackage(source, consumer)) {
+          affectedFiles.push(file);
+          sourceCaches.set(file, source);
+        }
+      } catch { continue; }
+    }
+
+    if (affectedFiles.length === 0) continue;
+
+    const eifCallSites: EIFCallSite[] = [];
+    const callerSlices: CallerSlice[] = [];
+
+    for (const file of affectedFiles) {
+      const source = sourceCaches.get(file)!;
+      parser.setLanguage(jsLanguage);
+      const tree = parser.parse(source);
+
+      const bindings = extractImportBindings(tree, consumer);
+      if (bindings.size === 0) continue;
+
+      const eifNodes = findEIFNodes(tree, bindings);
+
+      for (const node of eifNodes) {
+        const text = node.text;
+        eifCallSites.push({
+          file,
+          line: node.startPosition.row + 1,
+          callExpression: text.length > 120 ? text.slice(0, 120) + '...' : text,
+        });
+      }
+
+      const seenFunctions = new Set<string>();
+      for (const node of eifNodes) {
+        const fn = getEnclosingFunction(node);
+        if (fn) {
+          const key = `${file}:${fn.startPosition.row}`;
+          if (seenFunctions.has(key)) continue;
+          seenFunctions.add(key);
+          callerSlices.push(buildCallerSlice(fn, source, file));
+        } else {
+          const key = `${file}:module:${node.startPosition.row}`;
+          if (seenFunctions.has(key)) continue;
+          seenFunctions.add(key);
+          callerSlices.push(buildModuleLevelSlice(node, source, file));
+        }
+      }
+    }
+
+    if (eifCallSites.length > 0) {
+      return {
+        threatGhsaId:  threat.ghsaId,
+        packageName:   threat.packageName,
+        severity:      threat.severity,
+        priorityScore: threat.priorityScore,
+        affectedFiles,
+        eifCallSites,
+        callerSlices,
+        isIndirect:    true,
+        viaPackage:    consumer,
+      };
+    }
+  }
+
+  return null;
+}
+
 export async function analyzeCodeUsage(
   npmThreats: Threat[],
   workspacePath: string
 ): Promise<CodeSlice[]> {
   await initParser();
 
-  const sourceFiles = findSourceFiles(workspacePath);
-
+  const sourceFiles  = findSourceFiles(workspacePath);
+  const directDeps   = readDirectDependencies(workspacePath);
   const results: CodeSlice[] = [];
 
   for (const threat of npmThreats) {
@@ -257,7 +373,12 @@ export async function analyzeCodeUsage(
       } catch { /* unreadable — skip */ }
     }
 
-    if (affectedFiles.length === 0) continue;
+    if (affectedFiles.length === 0) {
+      const consumers    = findConsumerPackages(threat.packageName, directDeps, workspacePath);
+      const indirectSlice = findIndirectUsage(threat, consumers, sourceFiles, workspacePath);
+      if (indirectSlice) results.push(indirectSlice);
+      continue;
+    }
 
     const eifCallSites: EIFCallSite[] = [];
     const callerSlices: CallerSlice[] = [];

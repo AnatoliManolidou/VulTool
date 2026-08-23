@@ -275,11 +275,17 @@ async function main() {
     if (npmThreats.length > 0) {
       codeSlices = await analyzeCodeUsage(npmThreats, workspacePath);
     }
+    const directSlices   = codeSlices.filter(s => !s.isIndirect);
+    const indirectSlices = codeSlices.filter(s =>  s.isIndirect);
     const c7Status = npmThreats.length === 0
       ? 'no npm threats — skipped'
-      : codeSlices.length > 0
-        ? `${codeSlices.length} threat(s) with confirmed code usage`
-        : 'no direct code usage found';
+      : directSlices.length > 0 && indirectSlices.length > 0
+        ? `${directSlices.length} direct + ${indirectSlices.length} indirect usage(s) traced`
+        : directSlices.length > 0
+          ? `${directSlices.length} threat(s) with confirmed direct usage`
+          : indirectSlices.length > 0
+            ? `${indirectSlices.length} indirect usage(s) via transitive dep`
+            : 'no code usage found';
     core.info(`  [C7] AST Analyzer           → ${c7Status}`);
 
     // --- C8: PURPLE TEAM CONTEXT ---
@@ -333,10 +339,13 @@ async function main() {
       core.info(`       Risk       : ${t.isDevDependency ? 'Dev dependency' : 'Production'}`);
 
       if (ctx) {
-        const guardStr = ctx.guards.guards.length === 0
+        const guardStr  = ctx.guards.guards.length === 0
           ? 'none'
           : ctx.guards.guards.map(g => g.type).join(', ');
-        core.info(`       Attack path: ${buildAttackPathString(ctx)}`);
+        const pathLabel = ctx.codeSlice.isIndirect
+          ? `Indirect path: ${buildAttackPathString(ctx)}  (via ${ctx.codeSlice.viaPackage})`
+          : `Attack path: ${buildAttackPathString(ctx)}`;
+        core.info(`       ${pathLabel}`);
         core.info(`       Guards     : ${guardStr}`);
       } else {
         core.info(`       Code usage : not confirmed — static risk only`);
