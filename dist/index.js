@@ -43429,6 +43429,7 @@ function buildDiscordPayload(repoName, sortedThreats, exploitContexts, llmReport
     const exploitable = verdicts.filter(v => v === 'EXPLOITABLE').length;
     const conditional = verdicts.filter(v => v === 'CONDITIONALLY_EXPLOITABLE').length;
     const notExploitable = verdicts.filter(v => v === 'NOT_EXPLOITABLE').length;
+    const refused = verdicts.filter(v => v === 'REFUSED').length;
     let color;
     let title;
     if (exploitable > 0) {
@@ -43439,9 +43440,13 @@ function buildDiscordPayload(repoName, sortedThreats, exploitContexts, llmReport
         color = 15105570;
         title = '⚠️ Conditional Exploit Confirmed';
     }
-    else if (llmReports.size > 0) {
+    else if (llmReports.size > 0 && refused < llmReports.size) {
         color = 3066993;
         title = '✅ Threats Analyzed — Not Exploitable';
+    }
+    else if (refused > 0) {
+        color = 10197915;
+        title = '⚠️ Model Refused Analysis';
     }
     else {
         color = 3447003;
@@ -43459,6 +43464,8 @@ function buildDiscordPayload(repoName, sortedThreats, exploitContexts, llmReport
             parts.push(`CONDITIONAL: ${conditional}`);
         if (notExploitable > 0)
             parts.push(`NOT EXPLOITABLE: ${notExploitable}`);
+        if (refused > 0)
+            parts.push(`REFUSED: ${refused}`);
         fields.push({ name: 'Verdicts', value: parts.join(' | '), inline: false });
     }
     for (const t of sortedThreats.slice(0, 3)) {
@@ -43518,7 +43525,12 @@ function buildDiscordErrorPayload(repoName, message) {
 }
 function parseVerdict(report) {
     const m = report.match(/VERDICT:\s*(EXPLOITABLE|CONDITIONALLY_EXPLOITABLE|NOT_EXPLOITABLE)/);
-    return m ? m[1] : null;
+    if (m)
+        return m[1];
+    if (/I(?:'m| am) (?:sorry|unable|not able)|I can(?:'t|not) (?:help|assist)/i.test(report)) {
+        return 'REFUSED';
+    }
+    return null;
 }
 async function main() {
     try {
@@ -43695,8 +43707,14 @@ async function main() {
                 core.info(`  EXPLOIT ANALYSIS  —  ${ctx.threat.packageName}  (${ctx.threat.ghsaId})`);
                 core.info(LIGHT);
                 core.info('');
-                for (const line of report.split('\n')) {
-                    core.info(`  ${line}`);
+                if (parseVerdict(report) === 'REFUSED') {
+                    core.info(`  [!] Model refused to analyze this advisory.`);
+                    core.info(`      Switch to a security-capable model for full exploit analysis.`);
+                }
+                else {
+                    for (const line of report.split('\n')) {
+                        core.info(`  ${line}`);
+                    }
                 }
                 core.info('');
             }
@@ -43706,6 +43724,7 @@ async function main() {
         const exploitable = verdicts.filter(v => v === 'EXPLOITABLE').length;
         const conditional = verdicts.filter(v => v === 'CONDITIONALLY_EXPLOITABLE').length;
         const notExploitable = verdicts.filter(v => v === 'NOT_EXPLOITABLE').length;
+        const refused = verdicts.filter(v => v === 'REFUSED').length;
         if (discordWebhook) {
             await sendDiscordNotification(discordWebhook, buildDiscordPayload(repoName, sortedThreats, exploitContexts, llmReports, verdicts));
         }
@@ -43723,6 +43742,8 @@ async function main() {
                 vParts.push(`CONDITIONAL: ${conditional}`);
             if (notExploitable > 0)
                 vParts.push(`NOT EXPLOITABLE: ${notExploitable}`);
+            if (refused > 0)
+                vParts.push(`REFUSED: ${refused}`);
             parts.push(vParts.join('  '));
         }
         core.info(`  ${parts.join('  |  ')}`);
