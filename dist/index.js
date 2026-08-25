@@ -43254,6 +43254,15 @@ A ready-to-run exploit payload targeting this specific endpoint and input surfac
 ## Risk Verdict
 A single line in this exact format:
 VERDICT: <EXPLOITABLE|CONDITIONALLY_EXPLOITABLE|NOT_EXPLOITABLE> — <one sentence justification>
+
+## Adjacent Risks
+While analyzing the code path above, identify any application-level security vulnerabilities you observed that are distinct from the advisory under review. These are weaknesses in the *application's own code* — such as SSRF, injection flaws, missing authentication, open redirects, or insecure deserialization — not vulnerabilities in the library itself.
+
+For each finding, one line in this exact format:
+ADJACENT_RISK: <vulnerability type> — <one sentence: what the application code does wrong and how an attacker exploits it>
+
+If you observed no adjacent risks in the code above, write exactly:
+ADJACENT_RISK: none
 `.trim();
 }
 
@@ -43545,6 +43554,15 @@ function buildDiscordErrorPayload(repoName, message) {
             }],
     };
 }
+function parseAdjacentRisks(report) {
+    const risks = [];
+    for (const line of report.split('\n')) {
+        const m = line.match(/ADJACENT_RISK:\s*(.+)/);
+        if (m && m[1].trim().toLowerCase() !== 'none')
+            risks.push(m[1].trim());
+    }
+    return risks;
+}
 function parseVerdict(report) {
     const m = report.match(/VERDICT:\s*(EXPLOITABLE|CONDITIONALLY_EXPLOITABLE|NOT_EXPLOITABLE)/);
     if (m)
@@ -43745,6 +43763,7 @@ async function main() {
         const conditional = verdicts.filter(v => v === 'CONDITIONALLY_EXPLOITABLE').length;
         const notExploitable = verdicts.filter(v => v === 'NOT_EXPLOITABLE').length;
         const refused = verdicts.filter(v => v === 'REFUSED').length;
+        const adjacentRisks = [...llmReports.values()].flatMap(parseAdjacentRisks);
         core.info(HEAVY);
         core.info('  PIPELINE COMPLETE');
         const parts = [
@@ -43763,6 +43782,8 @@ async function main() {
                 vParts.push(`REFUSED: ${refused}`);
             parts.push(vParts.join('  '));
         }
+        if (adjacentRisks.length > 0)
+            parts.push(`ADJACENT RISKS: ${adjacentRisks.length}`);
         core.info(`  ${parts.join('  |  ')}`);
         core.info(HEAVY);
         if (discordWebhook) {

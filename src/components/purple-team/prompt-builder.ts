@@ -83,5 +83,14 @@ A ready-to-run exploit payload targeting this specific endpoint and input surfac
 ## Risk Verdict
 A single line in this exact format:
 VERDICT: <EXPLOITABLE|CONDITIONALLY_EXPLOITABLE|NOT_EXPLOITABLE> — <one sentence justification>
+
+## Adjacent Risks
+While analyzing the code path above, identify any application-level security vulnerabilities you observed that are distinct from the advisory under review. These are weaknesses in the *application's own code* — such as SSRF, injection flaws, missing authentication, open redirects, or insecure deserialization — not vulnerabilities in the library itself.
+
+For each finding, one line in this exact format:
+ADJACENT_RISK: <vulnerability type> — <one sentence: what the application code does wrong and how an attacker exploits it>
+
+If you observed no adjacent risks in the code above, write exactly:
+ADJACENT_RISK: none
 `.trim();
 }

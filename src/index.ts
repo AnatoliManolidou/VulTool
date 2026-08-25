@@ -152,6 +152,15 @@ function buildDiscordErrorPayload(repoName: string, message: string): object {
   };
 }
 
+function parseAdjacentRisks(report: string): string[] {
+  const risks: string[] = [];
+  for (const line of report.split('\n')) {
+    const m = line.match(/ADJACENT_RISK:\s*(.+)/);
+    if (m && m[1].trim().toLowerCase() !== 'none') risks.push(m[1].trim());
+  }
+  return risks;
+}
+
 function parseVerdict(report: string): string | null {
   const m = report.match(/VERDICT:\s*(EXPLOITABLE|CONDITIONALLY_EXPLOITABLE|NOT_EXPLOITABLE)/);
   if (m) return m[1];
@@ -362,11 +371,12 @@ async function main() {
     }
 
     // ── FOOTER ────────────────────────────────────────────────────────────────
-    const verdicts       = [...llmReports.values()].map(parseVerdict).filter(Boolean) as string[];
-    const exploitable    = verdicts.filter(v => v === 'EXPLOITABLE').length;
-    const conditional    = verdicts.filter(v => v === 'CONDITIONALLY_EXPLOITABLE').length;
-    const notExploitable = verdicts.filter(v => v === 'NOT_EXPLOITABLE').length;
-    const refused        = verdicts.filter(v => v === 'REFUSED').length;
+    const verdicts        = [...llmReports.values()].map(parseVerdict).filter(Boolean) as string[];
+    const exploitable     = verdicts.filter(v => v === 'EXPLOITABLE').length;
+    const conditional     = verdicts.filter(v => v === 'CONDITIONALLY_EXPLOITABLE').length;
+    const notExploitable  = verdicts.filter(v => v === 'NOT_EXPLOITABLE').length;
+    const refused         = verdicts.filter(v => v === 'REFUSED').length;
+    const adjacentRisks   = [...llmReports.values()].flatMap(parseAdjacentRisks);
 
     core.info(HEAVY);
     core.info('  PIPELINE COMPLETE');
@@ -382,6 +392,7 @@ async function main() {
       if (refused > 0)        vParts.push(`REFUSED: ${refused}`);
       parts.push(vParts.join('  '));
     }
+    if (adjacentRisks.length > 0) parts.push(`ADJACENT RISKS: ${adjacentRisks.length}`);
     core.info(`  ${parts.join('  |  ')}`);
     core.info(HEAVY);
 
