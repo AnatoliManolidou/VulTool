@@ -43134,37 +43134,48 @@ function detectGuards(entryPoint, callChain, codeSlice) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.callLLM = callLLM;
 const LLM_TIMEOUT_MS = 120_000;
+const LLM_RETRY_DELAY_MS = 10_000;
+const LLM_MAX_RETRIES = 2;
 async function callLLM(apiKey, prompt) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
-    try {
-        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${apiKey}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                model: 'stealth/ox-alpha',
-                messages: [{ role: 'user', content: prompt }],
-            }),
-            signal: controller.signal,
-        });
-        if (!response.ok) {
-            const text = await response.text();
-            throw new Error(`OpenRouter error ${response.status}: ${text}`);
+    let lastErr = new Error('LLM call failed');
+    for (let attempt = 0; attempt <= LLM_MAX_RETRIES; attempt++) {
+        if (attempt > 0)
+            await new Promise(r => setTimeout(r, LLM_RETRY_DELAY_MS));
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+        try {
+            const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    model: 'stealth/ox-alpha',
+                    messages: [{ role: 'user', content: prompt }],
+                }),
+                signal: controller.signal,
+            });
+            if (!response.ok) {
+                const text = await response.text();
+                lastErr = new Error(`OpenRouter error ${response.status}: ${text}`);
+                if (response.status === 429 || response.status >= 500)
+                    continue;
+                throw lastErr;
+            }
+            const data = await response.json();
+            return data.choices[0].message.content;
         }
-        const data = await response.json();
-        return data.choices[0].message.content;
+        catch (err) {
+            if (err.name === 'AbortError')
+                throw new Error(`LLM request timed out after ${LLM_TIMEOUT_MS / 1000}s`);
+            lastErr = err;
+        }
+        finally {
+            clearTimeout(timer);
+        }
     }
-    catch (err) {
-        if (err.name === 'AbortError')
-            throw new Error(`LLM request timed out after ${LLM_TIMEOUT_MS / 1000}s`);
-        throw err;
-    }
-    finally {
-        clearTimeout(timer);
-    }
+    throw lastErr;
 }
 
 
