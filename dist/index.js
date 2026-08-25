@@ -43133,7 +43133,7 @@ function detectGuards(entryPoint, callChain, codeSlice) {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.callLLM = callLLM;
-const LLM_TIMEOUT_MS = 120_000;
+const LLM_TIMEOUT_MS = 180_000;
 const LLM_RETRY_DELAY_MS = 10_000;
 const LLM_MAX_RETRIES = 2;
 async function callLLM(apiKey, prompt) {
