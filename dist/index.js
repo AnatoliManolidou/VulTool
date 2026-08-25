@@ -43133,7 +43133,7 @@ function detectGuards(entryPoint, callChain, codeSlice) {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.callLLM = callLLM;
-const LLM_TIMEOUT_MS = 45_000;
+const LLM_TIMEOUT_MS = 120_000;
 async function callLLM(apiKey, prompt) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);

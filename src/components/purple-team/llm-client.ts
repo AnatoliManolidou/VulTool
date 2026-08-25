@@ -1,4 +1,4 @@
-const LLM_TIMEOUT_MS = 45_000;
+const LLM_TIMEOUT_MS = 120_000;
 
 export async function callLLM(apiKey: string, prompt: string): Promise<string> {
   const controller = new AbortController();
