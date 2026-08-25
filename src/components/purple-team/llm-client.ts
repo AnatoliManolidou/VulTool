@@ -12,7 +12,7 @@ export async function callLLM(apiKey: string, prompt: string): Promise<string> {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'nvidia/nemotron-3-nano-30b-a3b:free',
+        model: 'stealth/ox-alpha',
         messages: [{ role: 'user', content: prompt }],
       }),
       signal: controller.signal,
