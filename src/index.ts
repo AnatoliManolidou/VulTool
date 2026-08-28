@@ -236,6 +236,12 @@ async function main() {
       core.info('');
       core.info('  Dependency Mapper failed — verify the GitHub Dependency Graph is enabled.');
       core.info(HEAVY);
+      if (discordWebhook) {
+        await sendDiscordNotification(
+          discordWebhook,
+          buildDiscordErrorPayload(repoName, 'Dependency Mapper failed — GitHub SBOM API timed out or is unavailable. Verify the Dependency Graph is enabled in repository settings.'),
+        );
+      }
       return;
     }
     core.info(`  [C3] Dependency Mapper      → ${installedPackages.size} packages mapped`);
