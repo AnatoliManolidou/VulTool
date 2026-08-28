@@ -43151,7 +43151,7 @@ async function callLLM(apiKey, prompt) {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    model: 'stealth/ox-alpha',
+                    model: 'thinkingmachines/inkling:free',
                     messages: [{ role: 'user', content: prompt }],
                 }),
                 signal: controller.signal,

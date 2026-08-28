@@ -19,7 +19,7 @@ export async function callLLM(apiKey: string, prompt: string): Promise<string> {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'stealth/ox-alpha',
+          model: 'thinkingmachines/inkling:free',
           messages: [{ role: 'user', content: prompt }],
         }),
         signal: controller.signal,
