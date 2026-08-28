@@ -43611,6 +43611,9 @@ async function main() {
             core.info('');
             core.info('  No package manager files found — nothing to scan.');
             core.info(HEAVY);
+            if (discordWebhook) {
+                await sendDiscordNotification(discordWebhook, buildDiscordErrorPayload(repoName, 'No supported package ecosystems detected — no package.json or equivalent found. Verify the action is configured against the correct repository.'));
+            }
             return;
         }
         // --- C2: ALERT FETCHER ---
@@ -43620,6 +43623,20 @@ async function main() {
             core.info('');
             core.info('  No recent advisories from the CTI feed.');
             core.info(HEAVY);
+            if (discordWebhook) {
+                const runUrl = `https://github.com/${repoName}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`;
+                await sendDiscordNotification(discordWebhook, {
+                    embeds: [{
+                            title: 'ℹ️ No Advisories in CTI Feed',
+                            color: 3447003,
+                            fields: [{ name: 'Repository', value: repoName, inline: true }],
+                            description: 'The CTI feed returned no advisories for the detected ecosystems. This may be transient — the feed will be checked again on the next run.',
+                            url: runUrl,
+                            timestamp: new Date().toISOString(),
+                            footer: { text: 'VulTool CTI Scanner' },
+                        }],
+                });
+            }
             return;
         }
         // Advisory skip check — bypassed in demo mode so every run exercises the full pipeline
