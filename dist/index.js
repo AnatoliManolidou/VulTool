@@ -43144,21 +43144,21 @@ async function callLLM(apiKey, prompt) {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
         try {
-            const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            const response = await fetch('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${apiKey}`,
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    model: 'nvidia/nemotron-3.5-lightning:free',
+                    model: 'gemini-2.5-flash',
                     messages: [{ role: 'user', content: prompt }],
                 }),
                 signal: controller.signal,
             });
             if (!response.ok) {
                 const text = await response.text();
-                lastErr = new Error(`OpenRouter error ${response.status}: ${text}`);
+                lastErr = new Error(`Gemini error ${response.status}: ${text}`);
                 if (response.status === 429 || response.status >= 500)
                     continue;
                 throw lastErr;
