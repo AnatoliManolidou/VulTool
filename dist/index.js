@@ -43151,7 +43151,7 @@ async function callLLM(apiKey, prompt) {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    model: 'poolside/laguna-s-2.1:free',
+                    model: 'stealth/ox-alpha',
                     messages: [{ role: 'user', content: prompt }],
                 }),
                 signal: controller.signal,
