@@ -43151,7 +43151,7 @@ async function callLLM(apiKey, prompt) {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    model: 'nvidia/nemotron-3.5-lightning:free',
+                    model: 'poolside/laguna-s-2.1:free',
                     messages: [{ role: 'user', content: prompt }],
                 }),
                 signal: controller.signal,
