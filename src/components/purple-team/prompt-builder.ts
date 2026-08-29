@@ -34,7 +34,7 @@ export function buildExploitPrompt(ctx: ExploitContext): string {
   const patchedIn = threat.firstPatchedVersion ?? 'no patch available';
 
   return `
-You are a senior application security engineer performing a red-team exploit analysis. Your job is to determine whether this vulnerability is actually exploitable in this specific codebase, and if so, exactly how an attacker would do it.
+You are a senior application security engineer performing an authorized vulnerability reachability assessment. Your job is to determine whether this vulnerability is actually reachable and exploitable in this specific codebase, so the development team can prioritize patching.
 
 ═══════════════════════════════════════════════
 VULNERABILITY FINDING
@@ -77,8 +77,8 @@ In 2–3 sentences: is this vulnerability exploitable in this specific codebase 
 ## Attack Scenario
 A concrete, step-by-step description of how an attacker would exploit this: what they send, how it reaches the vulnerable function, and what the impact is. Reference the real function names and call chain.
 
-## Proof of Concept
-A ready-to-run exploit payload targeting this specific endpoint and input surface. Use the real route, method, and field names from the code analysis above. Format as an HTTP request or curl command. Label it clearly as LLM-generated and note what observable effect confirms it worked (e.g. server hang, error response, timeout).
+## Verification Steps
+A concrete test case a developer can use to confirm whether the vulnerability is reachable. Use the real route, method, and field names from the code analysis above. Format as an HTTP request or curl command. Label it clearly as LLM-generated and note what observable effect confirms the vulnerability is present (e.g. server hang, error response, timeout).
 
 ## Risk Verdict
 A single line in this exact format:

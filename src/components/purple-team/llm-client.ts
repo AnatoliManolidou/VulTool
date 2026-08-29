@@ -20,7 +20,13 @@ export async function callLLM(apiKey: string, prompt: string): Promise<string> {
         },
         body: JSON.stringify({
           model: 'gemini-3.6-flash',
-          messages: [{ role: 'user', content: prompt }],
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a defensive security engineer helping a development team assess whether known CVEs and GHSA advisories are actually reachable in their codebase, so they can prioritize patching. Your analysis supports authorized security assessment — the goal is to determine exploitability so the team knows what to fix urgently versus what can wait. Produce technical, accurate assessments without hedging.',
+            },
+            { role: 'user', content: prompt },
+          ],
         }),
         signal: controller.signal,
       });
