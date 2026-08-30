@@ -43144,14 +43144,14 @@ async function callLLM(apiKey, prompt) {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
         try {
-            const response = await fetch('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
+            const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${apiKey}`,
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    model: 'gemini-3.6-flash',
+                    model: 'dots-studio/dots-3-note-preview:free',
                     messages: [
                         {
                             role: 'system',
@@ -43164,7 +43164,7 @@ async function callLLM(apiKey, prompt) {
             });
             if (!response.ok) {
                 const text = await response.text();
-                lastErr = new Error(`Gemini error ${response.status}: ${text}`);
+                lastErr = new Error(`OpenRouter error ${response.status}: ${text}`);
                 if (response.status === 429 || response.status >= 500)
                     continue;
                 throw lastErr;
@@ -43499,23 +43499,23 @@ function buildDiscordPayload(repoName, sortedThreats, exploitContexts, llmReport
     let title;
     if (exploitable > 0) {
         color = 15158332;
-        title = '🚨 EXPLOITABLE THREAT DETECTED';
+        title = 'EXPLOITABLE THREAT DETECTED';
     }
     else if (conditional > 0) {
         color = 15105570;
-        title = '⚠️ Conditional Exploit Confirmed';
+        title = 'Conditional Exploit Confirmed';
     }
     else if (llmReports.size > 0 && refused < llmReports.size) {
         color = 3066993;
-        title = '✅ Threats Analyzed — Not Exploitable';
+        title = 'Threats Analyzed — Not Exploitable';
     }
     else if (refused > 0) {
         color = 10197915;
-        title = '⚠️ Model Refused Analysis';
+        title = 'Model Refused Analysis';
     }
     else {
         color = 3447003;
-        title = '🔵 Threats Confirmed — No Exploit Analysis';
+        title = 'Threats Confirmed — No Exploit Analysis';
     }
     const fields = [
         { name: 'Repository', value: repoName, inline: true },
@@ -43562,7 +43562,7 @@ function buildDiscordErrorPayload(repoName, message) {
     const runUrl = `https://github.com/${repoName}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`;
     return {
         embeds: [{
-                title: '❌ VulTool Pipeline Error',
+                title: 'VulTool Pipeline Error',
                 description: message,
                 color: 15158332,
                 url: runUrl,
@@ -43624,7 +43624,7 @@ async function main() {
         }
         // --- C2: ALERT FETCHER ---
         const rawAdvisories = await (0, alert_fetcher_1.fetchRecentAdvisories)(token, detectedEcosystems, watchedGhsaIds, demoMode);
-        core.info(`  [C2] Alert Fetcher          → ${rawAdvisories.length} advisories fetched${demoMode ? ' (demo feed)' : ''}`);
+        core.info(`  [C2] Alert Fetcher          → ${rawAdvisories.length} advisories fetched`);
         if (rawAdvisories.length === 0) {
             core.info('');
             core.info('  No recent advisories from the CTI feed.');
@@ -43633,7 +43633,7 @@ async function main() {
                 const runUrl = `https://github.com/${repoName}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`;
                 await sendDiscordNotification(discordWebhook, {
                     embeds: [{
-                            title: 'ℹ️ No Advisories in CTI Feed',
+                            title: 'No Advisories in CTI Feed',
                             color: 3447003,
                             fields: [{ name: 'Repository', value: repoName, inline: true }],
                             description: 'The CTI feed returned no advisories for the detected ecosystems. This may be transient — the feed will be checked again on the next run.',
