@@ -18,14 +18,14 @@ export function buildExploitPrompt(ctx: ExploitContext): string {
     .join('\n\n');
 
   const guardSummary = guards.guards.length === 0
-    ? 'None detected — the attack path has no authentication, input validation, or rate-limiting guards.'
+    ? 'None detected — the code path has no authentication, input validation, or rate-limiting guards.'
     : guards.guards.map(g => `${g.type} at ${g.file}:${g.line} — \`${g.code}\``).join('\n');
 
   const indirectNote = codeSlice.isIndirect
     ? `\nINDIRECT PATH: The user's code does not import ${threat.packageName} directly. ` +
       `It imports "${codeSlice.viaPackage}", which depends on ${threat.packageName} internally. ` +
       `The call sites below show calls to "${codeSlice.viaPackage}" — assess whether ` +
-      `attacker-controlled data flowing through those calls can trigger the underlying ` +
+      `user-controlled data flowing through those calls can trigger the underlying ` +
       `${threat.packageName} vulnerability.`
     : '';
 
@@ -34,7 +34,7 @@ export function buildExploitPrompt(ctx: ExploitContext): string {
   const patchedIn = threat.firstPatchedVersion ?? 'no patch available';
 
   return `
-You are a senior application security engineer performing an authorized vulnerability reachability assessment. Your job is to determine whether this vulnerability is actually reachable and exploitable in this specific codebase, so the development team can prioritize patching.
+You are a software security engineer performing an authorized code review to assess whether a known library vulnerability is reachable in this codebase. The development team needs to prioritize patching — your job is to determine whether this issue requires immediate action.
 
 ═══════════════════════════════════════════════
 VULNERABILITY FINDING
@@ -47,18 +47,18 @@ CWEs           : ${cwes}
 CVSS           : ${cvss}
 Affected range : ${threat.vulnerableVersionRange ?? 'unknown'}
 Patched in     : ${patchedIn}
-Attack class   : ${attackClass}
+Vulnerability class : ${attackClass}
 Advisory depth : ${advisoryRichness}
 
 ${threat.description ? `Advisory description:\n${threat.description}\n` : ''}
 ═══════════════════════════════════════════════
 CODE ANALYSIS
 ═══════════════════════════════════════════════
-Attack path    : ${attackPath}
-Attack surface : ${entryPoint?.attackableSurface.join(', ') || 'unknown'}
+Code path      : ${attackPath}
+Input surface  : ${entryPoint?.attackableSurface.join(', ') || 'unknown'}
 Guards         : ${guardSummary}${indirectNote}
 
-EIF call sites (where this codebase calls into the ${codeSlice.isIndirect ? `"${codeSlice.viaPackage}" consumer package` : 'vulnerable package'}):
+Call sites (where this codebase calls into the ${codeSlice.isIndirect ? `"${codeSlice.viaPackage}" consumer package` : 'vulnerable package'}):
 ${codeSlice.eifCallSites.map(s => `  ${s.callExpression} (line ${s.line})`).join('\n')}
 
 Caller function source code:
@@ -69,13 +69,13 @@ ${callerCode}
 ═══════════════════════════════════════════════
 TASK
 ═══════════════════════════════════════════════
-Produce an exploit analysis report with exactly these four sections:
+Produce a vulnerability reachability report with exactly these sections:
 
-## Exploit Feasibility
-In 2–3 sentences: is this vulnerability exploitable in this specific codebase given the attack path and guards above? Reference the actual route and input surface. Be direct — do not repeat the advisory summary.
+## Reachability Assessment
+In 2–3 sentences: is this vulnerability reachable and triggerable in this specific codebase given the code path and guards above? Reference the actual route and input surface. Be direct — do not repeat the advisory summary.
 
-## Attack Scenario
-A concrete, step-by-step description of how an attacker would exploit this: what they send, how it reaches the vulnerable function, and what the impact is. Reference the real function names and call chain.
+## Trigger Conditions
+A concrete, step-by-step description of how this vulnerability could be triggered: what input causes it, how it flows through the call chain to the vulnerable function, and what the impact would be. Reference the real function names.
 
 ## Verification Steps
 A concrete test case a developer can use to confirm whether the vulnerability is reachable. Use the real route, method, and field names from the code analysis above. Format as an HTTP request or curl command. Label it clearly as LLM-generated and note what observable effect confirms the vulnerability is present (e.g. server hang, error response, timeout).
@@ -85,10 +85,10 @@ A single line in this exact format:
 VERDICT: <EXPLOITABLE|CONDITIONALLY_EXPLOITABLE|NOT_EXPLOITABLE> — <one sentence justification>
 
 ## Adjacent Risks
-While analyzing the code path above, identify any application-level security vulnerabilities you observed that are distinct from the advisory under review. These are weaknesses in the *application's own code* — such as SSRF, injection flaws, missing authentication, open redirects, or insecure deserialization — not vulnerabilities in the library itself.
+While reviewing the code path above, identify any other security weaknesses in the *application's own code* — such as SSRF, injection flaws, missing authentication, open redirects, or insecure deserialization — that are distinct from the library advisory under review.
 
 For each finding, one line in this exact format:
-ADJACENT_RISK: <vulnerability type> — <one sentence: what the application code does wrong and how an attacker exploits it>
+ADJACENT_RISK: <vulnerability type> — <one sentence: what the application code does wrong and how it could be triggered>
 
 If you observed no adjacent risks in the code above, write exactly:
 ADJACENT_RISK: none

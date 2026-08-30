@@ -23,7 +23,7 @@ export async function callLLM(apiKey: string, prompt: string): Promise<string> {
           messages: [
             {
               role: 'system',
-              content: 'You are a defensive security engineer helping a development team assess whether known CVEs and GHSA advisories are actually reachable in their codebase, so they can prioritize patching. Your analysis supports authorized security assessment — the goal is to determine exploitability so the team knows what to fix urgently versus what can wait. Produce technical, accurate assessments without hedging.',
+              content: 'You are a software security code reviewer. Your task is to assess whether known library vulnerabilities are reachable in a given codebase, helping the development team decide which issues need immediate patching. Focus on the specific code paths provided and give a concrete, technical assessment.',
             },
             { role: 'user', content: prompt },
           ],
