@@ -86,15 +86,15 @@ function buildDiscordPayload(
   let color: number;
   let title: string;
   if (exploitable > 0) {
-    color = 15158332; title = '🚨 EXPLOITABLE THREAT DETECTED';
+    color = 15158332; title = 'EXPLOITABLE THREAT DETECTED';
   } else if (conditional > 0) {
-    color = 15105570; title = '⚠️ Conditional Exploit Confirmed';
+    color = 15105570; title = 'Conditional Exploit Confirmed';
   } else if (llmReports.size > 0 && refused < llmReports.size) {
-    color = 3066993;  title = '✅ Threats Analyzed — Not Exploitable';
+    color = 3066993;  title = 'Threats Analyzed — Not Exploitable';
   } else if (refused > 0) {
-    color = 10197915; title = '⚠️ Model Refused Analysis';
+    color = 10197915; title = 'Model Refused Analysis';
   } else {
-    color = 3447003;  title = '🔵 Threats Confirmed — No Exploit Analysis';
+    color = 3447003;  title = 'Threats Confirmed — No Exploit Analysis';
   }
 
   const fields: object[] = [
@@ -142,7 +142,7 @@ function buildDiscordErrorPayload(repoName: string, message: string): object {
   const runUrl = `https://github.com/${repoName}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`;
   return {
     embeds: [{
-      title:       '❌ VulTool Pipeline Error',
+      title:       'VulTool Pipeline Error',
       description: message,
       color:       15158332,
       url:         runUrl,
@@ -213,7 +213,7 @@ async function main() {
 
     // --- C2: ALERT FETCHER ---
     const rawAdvisories: Advisory[] = await fetchRecentAdvisories(token, detectedEcosystems, watchedGhsaIds, demoMode);
-    core.info(`  [C2] Alert Fetcher          → ${rawAdvisories.length} advisories fetched${demoMode ? ' (demo feed)' : ''}`);
+    core.info(`  [C2] Alert Fetcher          → ${rawAdvisories.length} advisories fetched`);
     if (rawAdvisories.length === 0) {
       core.info('');
       core.info('  No recent advisories from the CTI feed.');
@@ -222,7 +222,7 @@ async function main() {
         const runUrl = `https://github.com/${repoName}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`;
         await sendDiscordNotification(discordWebhook, {
           embeds: [{
-            title: 'ℹ️ No Advisories in CTI Feed',
+            title: 'No Advisories in CTI Feed',
             color: 3447003,
             fields: [{ name: 'Repository', value: repoName, inline: true }],
             description: 'The CTI feed returned no advisories for the detected ecosystems. This may be transient — the feed will be checked again on the next run.',
