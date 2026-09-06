@@ -424,6 +424,10 @@ async function main() {
             fixReport = await callLLM(llmApiKey, prompt);
           } catch (err) {
             core.warning(`  Remediation call failed (attempt ${attempt}) for ${ctx.threat.packageName}: ${err instanceof Error ? err.message : String(err)}`);
+            if (previousFix && !remediationReports.has(ctx.threat.ghsaId)) {
+              // preserve attempt 1 fix so output still shows something
+              remediationReports.set(ctx.threat.ghsaId, latestFixReport ?? '');
+            }
             break;
           }
 
@@ -454,11 +458,11 @@ async function main() {
           }
 
           latestFixReport = fixReport;
+          remediationReports.set(ctx.threat.ghsaId, fixReport); // always keep latest fix
           const verified  = parseVerification(verificationReport);
           verificationResults.set(ctx.threat.ghsaId, verified);
 
           if (verified) {
-            remediationReports.set(ctx.threat.ghsaId, fixReport);
             // Step 4: create fix branch
             try {
               const branch = createFixBranch(ctx.threat.ghsaId, ctx.threat.packageName, [targetFile], workspacePath);
@@ -563,8 +567,12 @@ async function main() {
         if (verified === true && branch) {
           core.info(`  Verification : CONFIRMED — fix eliminates the vulnerability`);
           core.info(`  Branch       : ${branch}`);
+        } else if (verified === true && !branch) {
+          core.info(`  Verification : CONFIRMED — branch creation failed; apply the fix above manually`);
         } else if (verified === false) {
           core.info(`  Verification : NOT CONFIRMED — fix may be incomplete; review manually`);
+        } else {
+          core.info(`  Verification : NOT RUN — see warnings above`);
         }
         core.info('');
       }
