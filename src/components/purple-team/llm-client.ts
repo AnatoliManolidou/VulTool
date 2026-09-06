@@ -38,8 +38,10 @@ export async function callLLM(apiKey: string, prompt: string): Promise<string> {
         throw lastErr;
       }
 
-      const data = await response.json() as any;
-      return data.choices[0].message.content as string;
+      const data    = await response.json() as any;
+      const content = data.choices?.[0]?.message?.content;
+      if (content == null) throw new Error('LLM returned null or missing content');
+      return content as string;
     } catch (err: any) {
       if (err.name === 'AbortError') throw new Error(`LLM request timed out after ${LLM_TIMEOUT_MS / 1000}s`);
       lastErr = err;

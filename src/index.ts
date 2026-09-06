@@ -153,7 +153,8 @@ function buildDiscordErrorPayload(repoName: string, message: string): object {
   };
 }
 
-function parseAdjacentRisks(report: string): string[] {
+function parseAdjacentRisks(report: string | null | undefined): string[] {
+  if (!report) return [];
   const risks: string[] = [];
   for (const line of report.split('\n')) {
     const m = line.match(/ADJACENT_RISK:\s*(.+)/);
@@ -162,7 +163,8 @@ function parseAdjacentRisks(report: string): string[] {
   return risks;
 }
 
-function parseVerdict(report: string): string | null {
+function parseVerdict(report: string | null | undefined): string | null {
+  if (!report) return null;
   const m = report.match(/VERDICT:\s*(EXPLOITABLE|CONDITIONALLY_EXPLOITABLE|NOT_EXPLOITABLE)/);
   if (m) return m[1];
   if (/I(?:'m| am) (?:sorry|unable|not able)|I can(?:'t|not) (?:help|assist)/i.test(report)) {
