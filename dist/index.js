@@ -43170,7 +43170,10 @@ async function callLLM(apiKey, prompt) {
                 throw lastErr;
             }
             const data = await response.json();
-            return data.choices[0].message.content;
+            const content = data.choices?.[0]?.message?.content;
+            if (content == null)
+                throw new Error('LLM returned null or missing content');
+            return content;
         }
         catch (err) {
             if (err.name === 'AbortError')
@@ -43281,6 +43284,101 @@ ADJACENT_RISK: <vulnerability type> — <one sentence: what the application code
 If you observed no adjacent risks in the code above, write exactly:
 ADJACENT_RISK: none
 `.trim();
+}
+
+
+/***/ }),
+
+/***/ 33083:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.buildRemediationPrompt = buildRemediationPrompt;
+function buildRemediationPrompt(ctx, verdict, llmReport) {
+    const { threat, codeSlice, entryPoint, callChain, guards } = ctx;
+    const attackPath = entryPoint
+        ? [
+            entryPoint.identifier,
+            entryPoint.handlerFunction,
+            ...callChain.map(s => s.functionName),
+            ...codeSlice.callerSlices.map(s => s.functionName),
+            threat.packageName,
+        ].join(' → ')
+        : 'entry point not traced';
+    const callerCode = codeSlice.callerSlices
+        .map(s => `// ${s.functionName} (${s.file}:${s.startLine})\n${s.sourceText}`)
+        .join('\n\n');
+    const guardSummary = guards.guards.length === 0
+        ? 'None — no authentication, input validation, or rate-limiting guards detected.'
+        : guards.guards.map(g => `${g.type} at ${g.file}:${g.line} — \`${g.code}\``).join('\n');
+    const reachabilitySection = extractSection(llmReport, 'Reachability Assessment');
+    const triggerSection = extractSection(llmReport, 'Trigger Conditions');
+    return `
+You are a software security engineer. A known library vulnerability has been confirmed as reachable in this codebase. Your task is to propose a code-level fix in the application's own source code to mitigate the risk.
+
+IMPORTANT CONSTRAINTS:
+- Do NOT suggest upgrading or replacing the library.
+- Do NOT suggest removing the feature.
+- Fix only the application code shown below.
+
+═══════════════════════════════════════════════
+VULNERABILITY
+═══════════════════════════════════════════════
+Package     : ${threat.packageName}
+Advisory    : ${threat.ghsaId}
+Summary     : ${threat.summary}
+Severity    : ${threat.severity}
+Type        : ${ctx.attackClass}
+Verdict     : ${verdict}
+
+═══════════════════════════════════════════════
+CONFIRMED REACHABILITY
+═══════════════════════════════════════════════
+${reachabilitySection ? reachabilitySection : '(see trigger conditions below)'}
+
+${triggerSection ? `Trigger Conditions:\n${triggerSection}` : ''}
+
+═══════════════════════════════════════════════
+VULNERABLE CODE
+═══════════════════════════════════════════════
+Code path   : ${attackPath}
+Input surface: ${entryPoint?.attackableSurface.join(', ') || 'unknown'}
+Guards      : ${guardSummary}
+
+Call sites into the vulnerable library:
+${codeSlice.eifCallSites.map(s => `  ${s.callExpression} (line ${s.line})`).join('\n')}
+
+Caller source code:
+\`\`\`javascript
+${callerCode}
+\`\`\`
+
+═══════════════════════════════════════════════
+TASK
+═══════════════════════════════════════════════
+Propose a minimal code-level fix for the application code above that mitigates this specific vulnerability. The fix must:
+- Address the exact trigger conditions identified above
+- Be written in the same language and style as the original code
+- Change as little as possible — do not refactor unrelated logic
+
+Produce your response with exactly these sections:
+
+## Fixed Code
+The complete corrected version of each modified function. Preserve the original function signatures and file structure.
+
+## What Changed
+A concise bullet list: what was added or modified, and why each change mitigates the vulnerability.
+
+## Residual Risk
+Any remaining exposure after this fix is applied, or conditions under which the fix would be insufficient.
+`.trim();
+}
+function extractSection(report, heading) {
+    const re = new RegExp(`##\\s*${heading}\\s*\\n([\\s\\S]*?)(?=\\n##|$)`, 'i');
+    const m = report.match(re);
+    return m ? m[1].trim() : '';
 }
 
 
@@ -43435,6 +43533,7 @@ const call_chain_builder_1 = __nccwpck_require__(9285);
 const guard_detector_1 = __nccwpck_require__(78681);
 const context_assembler_1 = __nccwpck_require__(48747);
 const prompt_builder_1 = __nccwpck_require__(75435);
+const remediation_prompt_builder_1 = __nccwpck_require__(33083);
 const llm_client_1 = __nccwpck_require__(83562);
 const STATE_FILE = '/tmp/vultool-advisory-state.json';
 const CACHE_KEY = `vultool-advisory-state-${process.env.GITHUB_REPOSITORY ?? 'local'}`;
@@ -43572,6 +43671,8 @@ function buildDiscordErrorPayload(repoName, message) {
     };
 }
 function parseAdjacentRisks(report) {
+    if (!report)
+        return [];
     const risks = [];
     for (const line of report.split('\n')) {
         const m = line.match(/ADJACENT_RISK:\s*(.+)/);
@@ -43581,6 +43682,8 @@ function parseAdjacentRisks(report) {
     return risks;
 }
 function parseVerdict(report) {
+    if (!report)
+        return null;
     const m = report.match(/VERDICT:\s*(EXPLOITABLE|CONDITIONALLY_EXPLOITABLE|NOT_EXPLOITABLE)/);
     if (m)
         return m[1];
@@ -43743,6 +43846,30 @@ async function main() {
             }
             core.info(`  [C9] LLM Exploit Analyzer   → ${llmReports.size} analysis complete`);
         }
+        // --- C10: CODE REMEDIATION ---
+        const remediationReports = new Map();
+        const actionableVerdicts = new Set(['EXPLOITABLE', 'CONDITIONALLY_EXPLOITABLE']);
+        const remediationTargets = exploitContexts.filter(ctx => {
+            const v = parseVerdict(llmReports.get(ctx.threat.ghsaId) ?? '');
+            return v && actionableVerdicts.has(v);
+        });
+        if (remediationTargets.length === 0 || !llmApiKey) {
+            core.info(`  [C10] Remediation Engine     → ${!llmApiKey ? 'skipped — no API key' : 'skipped — no actionable verdicts'}`);
+        }
+        else {
+            for (const ctx of remediationTargets) {
+                const report = llmReports.get(ctx.threat.ghsaId);
+                const verdict = parseVerdict(report);
+                try {
+                    const fix = await (0, llm_client_1.callLLM)(llmApiKey, (0, remediation_prompt_builder_1.buildRemediationPrompt)(ctx, verdict, report));
+                    remediationReports.set(ctx.threat.ghsaId, fix);
+                }
+                catch (err) {
+                    core.warning(`  Remediation call failed for ${ctx.threat.packageName}: ${err instanceof Error ? err.message : String(err)}`);
+                }
+            }
+            core.info(`  [C10] Remediation Engine     → ${remediationReports.size} fix(es) generated`);
+        }
         await saveSeenGhsaIds(currentIds);
         // ── THREAT QUEUE ──────────────────────────────────────────────────────────
         core.info('');
@@ -43790,6 +43917,22 @@ async function main() {
                     for (const line of report.split('\n')) {
                         core.info(`  ${line}`);
                     }
+                }
+                core.info('');
+            }
+        }
+        // ── REMEDIATION ───────────────────────────────────────────────────────────
+        if (remediationReports.size > 0) {
+            for (const ctx of remediationTargets) {
+                const fix = remediationReports.get(ctx.threat.ghsaId);
+                if (!fix)
+                    continue;
+                core.info(LIGHT);
+                core.info(`  CODE FIX  —  ${ctx.threat.packageName}  (${ctx.threat.ghsaId})`);
+                core.info(LIGHT);
+                core.info('');
+                for (const line of fix.split('\n')) {
+                    core.info(`  ${line}`);
                 }
                 core.info('');
             }
