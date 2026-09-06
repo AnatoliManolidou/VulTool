@@ -13,6 +13,7 @@ import { buildCallChain } from './components/purple-team/call-chain-builder';
 import { detectGuards } from './components/purple-team/guard-detector';
 import { assembleContext } from './components/purple-team/context-assembler';
 import { buildExploitPrompt } from './components/purple-team/prompt-builder';
+import { buildRemediationPrompt } from './components/purple-team/remediation-prompt-builder';
 import { callLLM } from './components/purple-team/llm-client';
 import { ExploitContext } from './components/purple-team/types';
 import { Advisory, Threat } from './types';
@@ -340,6 +341,30 @@ async function main() {
       core.info(`  [C9] LLM Exploit Analyzer   → ${llmReports.size} analysis complete`);
     }
 
+    // --- C10: CODE REMEDIATION ---
+    const remediationReports = new Map<string, string>();
+    const actionableVerdicts = new Set(['EXPLOITABLE', 'CONDITIONALLY_EXPLOITABLE']);
+    const remediationTargets = exploitContexts.filter(ctx => {
+      const v = parseVerdict(llmReports.get(ctx.threat.ghsaId) ?? '');
+      return v && actionableVerdicts.has(v);
+    });
+
+    if (remediationTargets.length === 0 || !llmApiKey) {
+      core.info(`  [C10] Remediation Engine     → ${!llmApiKey ? 'skipped — no API key' : 'skipped — no actionable verdicts'}`);
+    } else {
+      for (const ctx of remediationTargets) {
+        const report  = llmReports.get(ctx.threat.ghsaId)!;
+        const verdict = parseVerdict(report)!;
+        try {
+          const fix = await callLLM(llmApiKey, buildRemediationPrompt(ctx, verdict, report));
+          remediationReports.set(ctx.threat.ghsaId, fix);
+        } catch (err) {
+          core.warning(`  Remediation call failed for ${ctx.threat.packageName}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      core.info(`  [C10] Remediation Engine     → ${remediationReports.size} fix(es) generated`);
+    }
+
     await saveSeenGhsaIds(currentIds);
 
     // ── THREAT QUEUE ──────────────────────────────────────────────────────────
@@ -391,6 +416,23 @@ async function main() {
           for (const line of report.split('\n')) {
             core.info(`  ${line}`);
           }
+        }
+        core.info('');
+      }
+    }
+
+    // ── REMEDIATION ───────────────────────────────────────────────────────────
+    if (remediationReports.size > 0) {
+      for (const ctx of remediationTargets) {
+        const fix = remediationReports.get(ctx.threat.ghsaId);
+        if (!fix) continue;
+
+        core.info(LIGHT);
+        core.info(`  CODE FIX  —  ${ctx.threat.packageName}  (${ctx.threat.ghsaId})`);
+        core.info(LIGHT);
+        core.info('');
+        for (const line of fix.split('\n')) {
+          core.info(`  ${line}`);
         }
         core.info('');
       }
