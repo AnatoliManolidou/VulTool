@@ -43049,6 +43049,71 @@ async function detectEntryPoint(callerSlices, workspacePath) {
 
 /***/ }),
 
+/***/ 34766:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.extractFixedCode = extractFixedCode;
+exports.applyFixToFile = applyFixToFile;
+exports.revertFile = revertFile;
+const fs = __importStar(__nccwpck_require__(79896));
+function extractFixedCode(response) {
+    const m = response.match(/##\s*Fixed Code[\s\S]*?```(?:javascript|js|typescript|ts)?\n([\s\S]*?)```/i);
+    return m ? m[1].trim() : null;
+}
+function applyFixToFile(filePath, originalSource, fixedCode) {
+    const originalContent = fs.readFileSync(filePath, 'utf8');
+    const idx = originalContent.indexOf(originalSource.trim());
+    if (idx === -1)
+        return { applied: false, originalContent };
+    const newContent = originalContent.slice(0, idx) +
+        fixedCode +
+        originalContent.slice(idx + originalSource.trim().length);
+    fs.writeFileSync(filePath, newContent, 'utf8');
+    return { applied: true, originalContent };
+}
+function revertFile(filePath, originalContent) {
+    fs.writeFileSync(filePath, originalContent, 'utf8');
+}
+
+
+/***/ }),
+
 /***/ 78681:
 /***/ ((__unused_webpack_module, exports) => {
 
@@ -43384,6 +43449,51 @@ function extractSection(report, heading) {
 
 /***/ }),
 
+/***/ 54561:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.buildVerificationPrompt = buildVerificationPrompt;
+function buildVerificationPrompt(ctx, originalCode, fixedCode, exploitReport) {
+    const triggerConditions = extractSection(exploitReport, 'Trigger Conditions');
+    return `
+You are a software security engineer. You previously confirmed this vulnerability is reachable in this codebase.
+
+Package      : ${ctx.threat.packageName}
+Advisory     : ${ctx.threat.ghsaId}
+Vulnerability: ${ctx.threat.summary}
+Type         : ${ctx.attackClass}
+
+ORIGINAL VULNERABLE CODE:
+\`\`\`javascript
+${originalCode}
+\`\`\`
+
+PROPOSED APPLICATION-LEVEL FIX:
+\`\`\`javascript
+${fixedCode}
+\`\`\`
+
+ORIGINAL TRIGGER CONDITIONS:
+${triggerConditions || ctx.threat.summary}
+
+Does the proposed fix prevent the vulnerability from being triggered through the original code path? Evaluate only the application-level code change — do not factor in library upgrades.
+
+Answer with exactly one line in this format:
+VERIFICATION: <YES|NO> — <one sentence explaining whether the fix eliminates the vulnerability>
+`.trim();
+}
+function extractSection(report, heading) {
+    const re = new RegExp(`##\\s*${heading}\\s*\\n([\\s\\S]*?)(?=\\n##|$)`, 'i');
+    const m = report.match(re);
+    return m ? m[1].trim() : '';
+}
+
+
+/***/ }),
+
 /***/ 32546:
 /***/ ((__unused_webpack_module, exports) => {
 
@@ -43521,6 +43631,8 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 const core = __importStar(__nccwpck_require__(37484));
 const cache = __importStar(__nccwpck_require__(5116));
 const fs = __importStar(__nccwpck_require__(79896));
+const path = __importStar(__nccwpck_require__(16928));
+const child_process_1 = __nccwpck_require__(35317);
 const ecosystem_detector_1 = __nccwpck_require__(68663);
 const alert_fetcher_1 = __nccwpck_require__(10884);
 const dependency_mapper_1 = __nccwpck_require__(70645);
@@ -43534,6 +43646,8 @@ const guard_detector_1 = __nccwpck_require__(78681);
 const context_assembler_1 = __nccwpck_require__(48747);
 const prompt_builder_1 = __nccwpck_require__(75435);
 const remediation_prompt_builder_1 = __nccwpck_require__(33083);
+const verification_prompt_builder_1 = __nccwpck_require__(54561);
+const fix_applier_1 = __nccwpck_require__(34766);
 const llm_client_1 = __nccwpck_require__(83562);
 const STATE_FILE = '/tmp/vultool-advisory-state.json';
 const CACHE_KEY = `vultool-advisory-state-${process.env.GITHUB_REPOSITORY ?? 'local'}`;
@@ -43692,6 +43806,29 @@ function parseVerdict(report) {
     }
     return null;
 }
+function parseVerification(response) {
+    return /VERIFICATION:\s*YES/i.test(response);
+}
+function createFixBranch(ghsaId, packageName, modifiedFiles, workspacePath) {
+    const branch = `vultool/fix-${ghsaId.toLowerCase()}`;
+    const git = (args) => (0, child_process_1.execSync)(['git', ...args.map(a => JSON.stringify(a))].join(' '), {
+        cwd: workspacePath,
+        stdio: 'pipe',
+    });
+    git(['config', 'user.email', 'vultool@github-actions']);
+    git(['config', 'user.name', 'VulTool']);
+    try {
+        git(['branch', '-D', branch]);
+    }
+    catch { /* ok if it doesn't exist */ }
+    git(['checkout', '-b', branch]);
+    for (const f of modifiedFiles)
+        git(['add', f]);
+    git(['commit', '-m', `fix(security): address ${ghsaId} in ${packageName} — VulTool automated fix`]);
+    git(['push', '-f', 'origin', branch]);
+    git(['checkout', '-']);
+    return branch;
+}
 async function main() {
     try {
         const token = core.getInput('github_token', { required: true });
@@ -43848,6 +43985,8 @@ async function main() {
         }
         // --- C10: CODE REMEDIATION ---
         const remediationReports = new Map();
+        const verificationResults = new Map();
+        const fixBranches = new Map();
         const actionableVerdicts = new Set(['EXPLOITABLE', 'CONDITIONALLY_EXPLOITABLE']);
         const remediationTargets = exploitContexts.filter(ctx => {
             const v = parseVerdict(llmReports.get(ctx.threat.ghsaId) ?? '');
@@ -43858,17 +43997,65 @@ async function main() {
         }
         else {
             for (const ctx of remediationTargets) {
-                const report = llmReports.get(ctx.threat.ghsaId);
-                const verdict = parseVerdict(report);
+                const exploitReport = llmReports.get(ctx.threat.ghsaId);
+                const verdict = parseVerdict(exploitReport);
+                const primarySlice = ctx.codeSlice.callerSlices[0];
+                if (!primarySlice)
+                    continue;
+                // Step 1: generate fix
+                let fixReport;
                 try {
-                    const fix = await (0, llm_client_1.callLLM)(llmApiKey, (0, remediation_prompt_builder_1.buildRemediationPrompt)(ctx, verdict, report));
-                    remediationReports.set(ctx.threat.ghsaId, fix);
+                    fixReport = await (0, llm_client_1.callLLM)(llmApiKey, (0, remediation_prompt_builder_1.buildRemediationPrompt)(ctx, verdict, exploitReport));
+                    remediationReports.set(ctx.threat.ghsaId, fixReport);
                 }
                 catch (err) {
                     core.warning(`  Remediation call failed for ${ctx.threat.packageName}: ${err instanceof Error ? err.message : String(err)}`);
+                    continue;
+                }
+                // Step 2: extract and apply fix to workspace file
+                const fixedCode = (0, fix_applier_1.extractFixedCode)(fixReport);
+                if (!fixedCode) {
+                    core.warning(`  Could not parse fixed code for ${ctx.threat.packageName}`);
+                    continue;
+                }
+                const targetFile = path.isAbsolute(primarySlice.file)
+                    ? primarySlice.file
+                    : path.resolve(workspacePath, primarySlice.file);
+                const { applied, originalContent } = (0, fix_applier_1.applyFixToFile)(targetFile, primarySlice.sourceText, fixedCode);
+                if (!applied) {
+                    core.warning(`  Could not apply fix to ${primarySlice.file} for ${ctx.threat.packageName}`);
+                    continue;
+                }
+                // Step 3: verify fix eliminates the vulnerability
+                let verificationReport;
+                try {
+                    verificationReport = await (0, llm_client_1.callLLM)(llmApiKey, (0, verification_prompt_builder_1.buildVerificationPrompt)(ctx, primarySlice.sourceText, fixedCode, exploitReport));
+                }
+                catch (err) {
+                    (0, fix_applier_1.revertFile)(targetFile, originalContent);
+                    core.warning(`  Verification call failed for ${ctx.threat.packageName}: ${err instanceof Error ? err.message : String(err)}`);
+                    continue;
+                }
+                const verified = parseVerification(verificationReport);
+                verificationResults.set(ctx.threat.ghsaId, verified);
+                if (!verified) {
+                    (0, fix_applier_1.revertFile)(targetFile, originalContent);
+                    core.warning(`  Fix for ${ctx.threat.packageName} (${ctx.threat.ghsaId}) not verified — branch not created`);
+                    continue;
+                }
+                // Step 4: create fix branch on the scanned repo
+                try {
+                    const branch = createFixBranch(ctx.threat.ghsaId, ctx.threat.packageName, [targetFile], workspacePath);
+                    fixBranches.set(ctx.threat.ghsaId, branch);
+                }
+                catch (err) {
+                    (0, fix_applier_1.revertFile)(targetFile, originalContent);
+                    core.warning(`  Branch creation failed for ${ctx.threat.packageName}: ${err instanceof Error ? err.message : String(err)}`);
                 }
             }
-            core.info(`  [C10] Remediation Engine     → ${remediationReports.size} fix(es) generated`);
+            const branchCount = fixBranches.size;
+            const fixCount = remediationReports.size;
+            core.info(`  [C10] Remediation Engine     → ${fixCount} fix(es) generated, ${branchCount} branch(es) created`);
         }
         await saveSeenGhsaIds(currentIds);
         // ── THREAT QUEUE ──────────────────────────────────────────────────────────
@@ -43927,12 +44114,22 @@ async function main() {
                 const fix = remediationReports.get(ctx.threat.ghsaId);
                 if (!fix)
                     continue;
+                const verified = verificationResults.get(ctx.threat.ghsaId);
+                const branch = fixBranches.get(ctx.threat.ghsaId);
                 core.info(LIGHT);
                 core.info(`  CODE FIX  —  ${ctx.threat.packageName}  (${ctx.threat.ghsaId})`);
                 core.info(LIGHT);
                 core.info('');
                 for (const line of fix.split('\n')) {
                     core.info(`  ${line}`);
+                }
+                core.info('');
+                if (verified === true && branch) {
+                    core.info(`  Verification : CONFIRMED — fix eliminates the vulnerability`);
+                    core.info(`  Branch       : ${branch}`);
+                }
+                else if (verified === false) {
+                    core.info(`  Verification : NOT CONFIRMED — fix may be incomplete; review manually`);
                 }
                 core.info('');
             }
@@ -43964,6 +44161,8 @@ async function main() {
         }
         if (adjacentRisks.length > 0)
             parts.push(`ADJACENT RISKS: ${adjacentRisks.length}`);
+        if (fixBranches.size > 0)
+            parts.push(`FIX BRANCHES: ${fixBranches.size}`);
         core.info(`  ${parts.join('  |  ')}`);
         core.info(HEAVY);
         if (discordWebhook) {
