@@ -15,7 +15,7 @@ import { buildCallChain } from './components/purple-team/call-chain-builder';
 import { detectGuards } from './components/purple-team/guard-detector';
 import { assembleContext } from './components/purple-team/context-assembler';
 import { buildExploitPrompt } from './components/purple-team/prompt-builder';
-import { buildRemediationPrompt } from './components/purple-team/remediation-prompt-builder';
+import { buildRemediationPrompt, buildRetryRemediationPrompt } from './components/purple-team/remediation-prompt-builder';
 import { buildVerificationPrompt } from './components/purple-team/verification-prompt-builder';
 import { extractFixedCode, applyFixToFile, revertFile } from './components/purple-team/fix-applier';
 import { callLLM } from './components/purple-team/llm-client';
@@ -179,6 +179,11 @@ function parseVerdict(report: string | null | undefined): string | null {
 
 function parseVerification(response: string): boolean {
   return /VERIFICATION:\s*YES/i.test(response);
+}
+
+function parseVerificationReason(response: string): string {
+  const m = response.match(/VERIFICATION:\s*(?:YES|NO)\s*[—-]\s*(.+)/i);
+  return m ? m[1].trim() : 'insufficient fix — see verification output';
 }
 
 function createFixBranch(
@@ -392,68 +397,88 @@ async function main() {
     if (remediationTargets.length === 0 || !llmApiKey) {
       core.info(`  [C10] Remediation Engine     → ${!llmApiKey ? 'skipped — no API key' : 'skipped — no actionable verdicts'}`);
     } else {
+      const FIX_MAX_ATTEMPTS = 2;
+
       for (const ctx of remediationTargets) {
         const exploitReport = llmReports.get(ctx.threat.ghsaId)!;
         const verdict       = parseVerdict(exploitReport)!;
         const primarySlice  = ctx.codeSlice.callerSlices[0];
         if (!primarySlice) continue;
 
-        // Step 1: generate fix
-        let fixReport: string;
-        try {
-          fixReport = await callLLM(llmApiKey, buildRemediationPrompt(ctx, verdict, exploitReport));
-          remediationReports.set(ctx.threat.ghsaId, fixReport);
-        } catch (err) {
-          core.warning(`  Remediation call failed for ${ctx.threat.packageName}: ${err instanceof Error ? err.message : String(err)}`);
-          continue;
-        }
-
-        // Step 2: extract and apply fix to workspace file
-        const fixedCode = extractFixedCode(fixReport);
-        if (!fixedCode) {
-          core.warning(`  Could not parse fixed code for ${ctx.threat.packageName}`);
-          continue;
-        }
-
         const targetFile = path.isAbsolute(primarySlice.file)
           ? primarySlice.file
           : path.resolve(workspacePath, primarySlice.file);
 
-        const { applied, originalContent } = applyFixToFile(targetFile, primarySlice.sourceText, fixedCode);
-        if (!applied) {
-          core.warning(`  Could not apply fix to ${primarySlice.file} for ${ctx.threat.packageName}`);
-          continue;
-        }
+        let latestFixReport: string | null = null;
+        let previousFix:     string | null = null;
+        let verificationFailureReason      = '';
 
-        // Step 3: verify fix eliminates the vulnerability
-        let verificationReport: string;
-        try {
-          verificationReport = await callLLM(
-            llmApiKey,
-            buildVerificationPrompt(ctx, primarySlice.sourceText, fixedCode, exploitReport),
-          );
-        } catch (err) {
-          revertFile(targetFile, originalContent);
-          core.warning(`  Verification call failed for ${ctx.threat.packageName}: ${err instanceof Error ? err.message : String(err)}`);
-          continue;
-        }
+        for (let attempt = 1; attempt <= FIX_MAX_ATTEMPTS; attempt++) {
+          // Step 1: generate (or retry) fix
+          const prompt = attempt === 1
+            ? buildRemediationPrompt(ctx, verdict, exploitReport)
+            : buildRetryRemediationPrompt(ctx, primarySlice.sourceText, previousFix!, verificationFailureReason);
 
-        const verified = parseVerification(verificationReport);
-        verificationResults.set(ctx.threat.ghsaId, verified);
+          let fixReport: string;
+          try {
+            fixReport = await callLLM(llmApiKey, prompt);
+          } catch (err) {
+            core.warning(`  Remediation call failed (attempt ${attempt}) for ${ctx.threat.packageName}: ${err instanceof Error ? err.message : String(err)}`);
+            break;
+          }
 
-        if (!verified) {
-          revertFile(targetFile, originalContent);
-          core.warning(`  Fix for ${ctx.threat.packageName} (${ctx.threat.ghsaId}) not verified — branch not created`);
-          continue;
-        }
+          // Step 2: extract and apply fix
+          const fixedCode = extractFixedCode(fixReport);
+          if (!fixedCode) {
+            core.warning(`  Could not parse fixed code (attempt ${attempt}) for ${ctx.threat.packageName}`);
+            break;
+          }
 
-        // Step 4: create fix branch on the scanned repo
-        try {
-          const branch = createFixBranch(ctx.threat.ghsaId, ctx.threat.packageName, [targetFile], workspacePath);
-          fixBranches.set(ctx.threat.ghsaId, branch);
-        } catch (err) {
-          revertFile(targetFile, originalContent);
-          core.warning(`  Branch creation failed for ${ctx.threat.packageName}: ${err instanceof Error ? err.message : String(err)}`);
+          const { applied, originalContent } = applyFixToFile(targetFile, primarySlice.sourceText, fixedCode);
+          if (!applied) {
+            core.warning(`  Could not apply fix (attempt ${attempt}) for ${ctx.threat.packageName}`);
+            break;
+          }
+
+          // Step 3: verify
+          let verificationReport: string;
+          try {
+            verificationReport = await callLLM(
+              llmApiKey,
+              buildVerificationPrompt(ctx, primarySlice.sourceText, fixedCode, exploitReport),
+            );
+          } catch (err) {
+            revertFile(targetFile, originalContent);
+            core.warning(`  Verification call failed (attempt ${attempt}) for ${ctx.threat.packageName}: ${err instanceof Error ? err.message : String(err)}`);
+            break;
+          }
+
+          latestFixReport = fixReport;
+          const verified  = parseVerification(verificationReport);
+          verificationResults.set(ctx.threat.ghsaId, verified);
+
+          if (verified) {
+            remediationReports.set(ctx.threat.ghsaId, fixReport);
+            // Step 4: create fix branch
+            try {
+              const branch = createFixBranch(ctx.threat.ghsaId, ctx.threat.packageName, [targetFile], workspacePath);
+              fixBranches.set(ctx.threat.ghsaId, branch);
+            } catch (err) {
+              revertFile(targetFile, originalContent);
+              core.warning(`  Branch creation failed for ${ctx.threat.packageName}: ${err instanceof Error ? err.message : String(err)}`);
+            }
+            break;
+          } else {
+            verificationFailureReason = parseVerificationReason(verificationReport);
+            revertFile(targetFile, originalContent);
+            previousFix = fixedCode;
+            if (attempt < FIX_MAX_ATTEMPTS) {
+              core.info(`  [C10] Attempt ${attempt} not verified — retrying with feedback`);
+            } else {
+              remediationReports.set(ctx.threat.ghsaId, fixReport);
+              core.warning(`  Fix for ${ctx.threat.packageName} (${ctx.threat.ghsaId}) not verified after ${FIX_MAX_ATTEMPTS} attempts`);
+            }
+          }
         }
       }
 

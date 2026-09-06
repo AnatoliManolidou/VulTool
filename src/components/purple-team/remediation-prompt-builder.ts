@@ -89,6 +89,63 @@ Any remaining exposure after this fix is applied, or conditions under which the 
 `.trim();
 }
 
+export function buildRetryRemediationPrompt(
+  ctx: ExploitContext,
+  originalCode: string,
+  previousFix: string,
+  verificationFailureReason: string,
+): string {
+  const { threat, attackClass } = ctx;
+
+  return `
+You are a software security engineer. You previously proposed a code-level fix for a vulnerability, but it was assessed as insufficient.
+
+IMPORTANT CONSTRAINTS:
+- Do NOT suggest upgrading or replacing the library.
+- Do NOT suggest removing the feature.
+- Fix only the application code shown below.
+- Address the specific shortcoming identified in the verification result.
+
+═══════════════════════════════════════════════
+VULNERABILITY
+═══════════════════════════════════════════════
+Package     : ${threat.packageName}
+Advisory    : ${threat.ghsaId}
+Summary     : ${threat.summary}
+Type        : ${attackClass}
+
+═══════════════════════════════════════════════
+ORIGINAL VULNERABLE CODE
+═══════════════════════════════════════════════
+\`\`\`javascript
+${originalCode}
+\`\`\`
+
+═══════════════════════════════════════════════
+YOUR PREVIOUS FIX (REJECTED)
+═══════════════════════════════════════════════
+\`\`\`javascript
+${previousFix}
+\`\`\`
+
+VERIFICATION RESULT: NOT CONFIRMED — ${verificationFailureReason}
+
+═══════════════════════════════════════════════
+TASK
+═══════════════════════════════════════════════
+Propose an improved fix that addresses the specific weakness above.
+
+## Fixed Code
+The complete corrected version of each modified function.
+
+## What Changed
+A concise bullet list of what was improved over the previous fix and why.
+
+## Residual Risk
+Any remaining exposure after this improved fix is applied.
+`.trim();
+}
+
 function extractSection(report: string, heading: string): string {
   const re = new RegExp(`##\\s*${heading}\\s*\\n([\\s\\S]*?)(?=\\n##|$)`, 'i');
   const m = report.match(re);
