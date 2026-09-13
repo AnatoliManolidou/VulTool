@@ -1200,5 +1200,463 @@
         "vectorString": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:L/A:L"
       }
     }
+  },
+  {
+    "severity": "HIGH",
+    "vulnerableVersionRange": ">= 1.4.4-lts.1, < 2.3.0",
+    "firstPatchedVersion": {
+      "identifier": "2.3.0"
+    },
+    "package": {
+      "name": "multer",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-wc9g-mqfw-jrwm",
+      "summary": "Multer Denial of Service via Crafted Multipart Field Names",
+      "description": "multer versions >= 1.4.4-lts.1 and < 2.3.0 are vulnerable to Denial of Service (DoS). A crafted multipart upload request with specially constructed field names causes the multipart parser to throw an uncaught exception, crashing the Node.js process. Unauthenticated attackers can exploit this to terminate the server. Fixed in 2.3.0.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-248",
+            "name": "Uncaught Exception"
+          },
+          {
+            "cweId": "CWE-400",
+            "name": "Uncontrolled Resource Consumption"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 7.5,
+        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      }
+    }
+  },
+  {
+    "severity": "HIGH",
+    "vulnerableVersionRange": ">= 1.4.4-lts.1, < 2.3.0",
+    "firstPatchedVersion": {
+      "identifier": "2.3.0"
+    },
+    "package": {
+      "name": "multer",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-535w-7cp7-47q4",
+      "summary": "multer Denial of Service via Oversized Array Index in Field Names",
+      "description": "multer versions >= 1.4.4-lts.1 and < 2.3.0 are vulnerable to Denial of Service (DoS). When a multipart field name contains an oversized array index (e.g., `field[999999999]`), the parser performs an allocation proportional to the index value, exhausting available memory. Unauthenticated attackers can trigger an out-of-memory crash via a single malformed request. Fixed in 2.3.0.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-400",
+            "name": "Uncontrolled Resource Consumption"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 7.5,
+        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      }
+    }
+  },
+  {
+    "severity": "HIGH",
+    "vulnerableVersionRange": "= 2.2.0",
+    "firstPatchedVersion": {
+      "identifier": "2.3.0"
+    },
+    "package": {
+      "name": "multer",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-qfvm-cv95-jqjf",
+      "summary": "multer File Descriptor Leak on Aborted Uploads (DoS)",
+      "description": "multer version 2.2.0 using diskStorage fails to close the destination write stream when a multipart upload is aborted prematurely. Each aborted upload leaks an open file descriptor and retains disk blocks until process termination. Repeated aborted upload requests exhaust the process's file descriptor limit, making the service unavailable. Fixed in 2.3.0. CVE-2026-77037.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-400",
+            "name": "Uncontrolled Resource Consumption"
+          },
+          {
+            "cweId": "CWE-459",
+            "name": "Incomplete Cleanup"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 7.5,
+        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      }
+    }
+  },
+  {
+    "severity": "HIGH",
+    "vulnerableVersionRange": "< 9.1.0",
+    "firstPatchedVersion": {
+      "identifier": "9.1.0"
+    },
+    "package": {
+      "name": "nodemailer",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-2x7j-588g-ccc2",
+      "summary": "nodemailer ReDoS via Quadratic Complexity in addressparser",
+      "description": "nodemailer versions < 9.1.0 contain a Regular Expression Denial of Service (ReDoS) vulnerability in the bundled addressparser module. The email address parsing regex exhibits quadratic time complexity on inputs that contain many separators or nested comment constructs. A single crafted recipient address can block the Node.js event loop for seconds. Fixed in 9.1.0. CVE-2026 (CWE-400/407).",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-400",
+            "name": "Uncontrolled Resource Consumption"
+          },
+          {
+            "cweId": "CWE-407",
+            "name": "Inefficient Algorithmic Complexity"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 7.5,
+        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      }
+    }
+  },
+  {
+    "severity": "MODERATE",
+    "vulnerableVersionRange": "< 9.1.0",
+    "firstPatchedVersion": {
+      "identifier": "9.1.0"
+    },
+    "package": {
+      "name": "nodemailer",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-wmmp-3585-3rmp",
+      "summary": "nodemailer IDN/Punycode Normalization Bypass Allows Domain Allow-List Evasion",
+      "description": "nodemailer versions < 9.1.0 use a bundled RFC-3492 Punycode codec without UTS-46 normalization. International domain names containing invisible Unicode characters (e.g., U+00AD SOFT HYPHEN) are encoded differently from standards-compliant parsers, allowing a crafted recipient domain to pass allow-list validation while actually resolving to a different registrable domain. Fixed in 9.1.0.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-20",
+            "name": "Improper Input Validation"
+          },
+          {
+            "cweId": "CWE-436",
+            "name": "Interpretation Conflict"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 6.5,
+        "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:L/A:N"
+      }
+    }
+  },
+  {
+    "severity": "MODERATE",
+    "vulnerableVersionRange": ">= 6.9.16, < 9.1.0",
+    "firstPatchedVersion": {
+      "identifier": "9.1.0"
+    },
+    "package": {
+      "name": "nodemailer",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-cc9r-2j5m-2m83",
+      "summary": "nodemailer RFC 5322 Comment Parsing Allows Mail Redirection to Attacker Domain",
+      "description": "nodemailer versions >= 6.9.16 and < 9.1.0 mishandle RFC 5322 comments within email domain parts. A comment such as `(x)` between domain segments is concatenated rather than discarded, so an address like `user@good-corp.com(x)evil.com` resolves to `good-corp.comevil.com`, enabling mail redirection to an attacker-controlled domain. Fixed in 9.1.0.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-20",
+            "name": "Improper Input Validation"
+          },
+          {
+            "cweId": "CWE-436",
+            "name": "Interpretation Conflict"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 6.5,
+        "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:L/A:N"
+      }
+    }
+  },
+  {
+    "severity": "HIGH",
+    "vulnerableVersionRange": ">= 4.0.0, < 4.3.2",
+    "firstPatchedVersion": {
+      "identifier": "4.3.2"
+    },
+    "package": {
+      "name": "js-yaml",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-2883-xcg3-v3hh",
+      "summary": "js-yaml Denial of Service via Unbounded YAML Merge Key Expansion",
+      "description": "js-yaml versions >= 4.0.0 and < 4.3.2 (and >= 3.0.0 and < 3.15.2 on the 3.x branch) do not enforce a limit on the total number of merge keys (`<<`) resolved during YAML parsing. A crafted YAML document using many empty merge sources can exhaust CPU and memory proportional to the count of merge keys. Fixed in 4.3.2 (and 3.15.2 for the 3.x branch) by introducing a `maxTotalMergeKeys` cap.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-400",
+            "name": "Uncontrolled Resource Consumption"
+          },
+          {
+            "cweId": "CWE-407",
+            "name": "Inefficient Algorithmic Complexity"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 7.5,
+        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      }
+    }
+  },
+  {
+    "severity": "MODERATE",
+    "vulnerableVersionRange": "< 1.12.0",
+    "firstPatchedVersion": {
+      "identifier": "1.12.0"
+    },
+    "package": {
+      "name": "morgan",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-jxfw-x594-9x9m",
+      "summary": "morgan Log Forging via Unicode Line Separators in HTTP Request Fields",
+      "description": "morgan versions < 1.12.0 do not sanitize Unicode line terminators (U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR) from logged HTTP request fields such as User-Agent and URL. An attacker can inject these characters to forge additional log lines, making malicious activity appear legitimate or hiding real events. Fixed in 1.12.0, which strips U+2028 and U+2029 from all logged values. CWE-117.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-117",
+            "name": "Improper Output Neutralization for Logs"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 5.3,
+        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N"
+      }
+    }
+  },
+  {
+    "severity": "HIGH",
+    "vulnerableVersionRange": "<= 1.7.0",
+    "firstPatchedVersion": {
+      "identifier": "1.7.1"
+    },
+    "package": {
+      "name": "smol-toml",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-7w5x-hrqm-74c2",
+      "summary": "smol-toml Infinite Loop Denial of Service via Malformed TOML Input",
+      "description": "smol-toml versions <= 1.7.0 enter an infinite loop when the parse() function processes a TOML document containing an array or inline table whose last value is followed by a comment with no trailing newline. The parser resets to the document start on each iteration, consuming 100% CPU indefinitely. Fixed in 1.7.1 with proper loop termination. CVE-2026-85730.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-835",
+            "name": "Loop with Unreachable Exit Condition ('Infinite Loop')"
+          },
+          {
+            "cweId": "CWE-606",
+            "name": "Unchecked Input for Loop Condition"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 8.2,
+        "vectorString": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    }
+  },
+  {
+    "severity": "HIGH",
+    "vulnerableVersionRange": "< 0.35.4",
+    "firstPatchedVersion": {
+      "identifier": "0.35.4"
+    },
+    "package": {
+      "name": "sharp",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-rgj7-g3m4-5g8c",
+      "summary": "sharp Heap Buffer Overflow via Malicious AVIF Image (libheif)",
+      "description": "sharp versions < 0.35.4 bundle a vulnerable version of libheif that contains heap buffer overflow flaws (CWE-122) when decoding attacker-crafted AVIF image data. On glibc-based Linux systems, processing an untrusted AVIF file can lead to remote code execution with the application's privileges. Fixed in sharp 0.35.4, which upgrades the bundled libheif to 1.23.2.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-122",
+            "name": "Heap-based Buffer Overflow"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 8.9,
+        "vectorString": "CVSS:4.0/AV:L/AC:L/AT:P/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H"
+      }
+    }
+  },
+  {
+    "severity": "MODERATE",
+    "vulnerableVersionRange": "< 4.13.5",
+    "firstPatchedVersion": {
+      "identifier": "4.13.5"
+    },
+    "package": {
+      "name": "hono",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-gqvv-2mrq-wpjv",
+      "summary": "hono Path Traversal in toSSG() Allows File Writes Outside Output Directory",
+      "description": "hono versions < 4.13.5 contain an incomplete remediation for a prior path traversal in the toSSG() static site generation function. The path normalization routine fails to collapse consecutive parent-directory segments, allowing route parameters with repeated `..` sequences to bypass directory boundary checks and write files outside the designated output directory. Fixed in 4.13.5. CVE-2026-84365.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-22",
+            "name": "Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 6.5,
+        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:H/A:N"
+      }
+    }
+  },
+  {
+    "severity": "MODERATE",
+    "vulnerableVersionRange": "< 4.13.5",
+    "firstPatchedVersion": {
+      "identifier": "4.13.5"
+    },
+    "package": {
+      "name": "hono",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-g6gw-c38x-mqfc",
+      "summary": "hono parseBody() Memory Exhaustion via Deeply Nested Dot-Notation Fields",
+      "description": "hono versions < 4.13.5 do not limit nesting depth when parseBody() converts dot-notation form field names into nested objects. Attackers can craft requests where a single field name with deep dot-notation (e.g., `a.b.c...x`) triggers heap allocations far exceeding the request body size. Concurrent malicious requests can exhaust available memory and crash the server. Only affects applications that explicitly enable dot-notation parsing. Fixed in 4.13.5. CVE-2026-84364.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-400",
+            "name": "Uncontrolled Resource Consumption"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 5.3,
+        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L"
+      }
+    }
+  },
+  {
+    "severity": "CRITICAL",
+    "vulnerableVersionRange": "< 7.2.8",
+    "firstPatchedVersion": {
+      "identifier": "7.2.8"
+    },
+    "package": {
+      "name": "astro",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-26w7-cxv4-gfx2",
+      "summary": "astro Remote Code Execution via Malicious AVIF Image in Default Sharp Image Service",
+      "description": "astro versions < 7.2.8 use the default Sharp image service, which bundles a vulnerable libheif containing out-of-bounds read and write flaws (CWE-125, CWE-787). A malicious AVIF image submitted for optimization can trigger these memory safety violations and achieve remote code execution with no authentication or user interaction required. CVSS 9.8. Fixed in astro 7.2.8.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-125",
+            "name": "Out-of-bounds Read"
+          },
+          {
+            "cweId": "CWE-787",
+            "name": "Out-of-bounds Write"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 9.8,
+        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      }
+    }
+  },
+  {
+    "severity": "HIGH",
+    "vulnerableVersionRange": ">= 3.7.0, < 3.30.5",
+    "firstPatchedVersion": {
+      "identifier": "3.30.5"
+    },
+    "package": {
+      "name": "@tiptap/core",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-j95f-988m-3j2f",
+      "summary": "@tiptap/core ReDoS in Markdown Attribute Parsers",
+      "description": "@tiptap/core versions >= 3.7.0 and < 3.30.5 contain two quadratic Regular Expression Denial of Service (ReDoS) vulnerabilities in the default Markdown attribute parsers. The first is in block attribute parsing via an unanchored greedy expression that rescans repeated prefixes; the second is in inline shortcode attribute parsing via an unanchored greedy key expression. A small crafted Markdown input can freeze the Node.js event loop. Affected functions: createAtomBlockMarkdownSpec, createBlockMarkdownSpec, createInlineMarkdownSpec. Fixed in 3.30.5.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-400",
+            "name": "Uncontrolled Resource Consumption"
+          },
+          {
+            "cweId": "CWE-1333",
+            "name": "Inefficient Regular Expression Complexity"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 8.7,
+        "vectorString": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    }
+  },
+  {
+    "severity": "CRITICAL",
+    "vulnerableVersionRange": "<= 3.8.50",
+    "firstPatchedVersion": null,
+    "package": {
+      "name": "omniroute",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-hf57-cqmx-p4gr",
+      "summary": "omniroute Unauthenticated Remote Code Execution via ACP Custom-Agent Endpoint",
+      "description": "omniroute versions <= 3.8.50 expose a POST /api/acp/agents endpoint that accepts user-controlled binary and versionCommand parameters without sufficient validation. The application immediately executes the supplied versionCommand via execFileSync() after saving the agent. When requireLogin=false, this endpoint is reachable without authentication, allowing arbitrary Node.js code and OS command execution. No patch is currently available. CVE-2026-88062.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-94",
+            "name": "Improper Control of Generation of Code ('Code Injection')"
+          },
+          {
+            "cweId": "CWE-306",
+            "name": "Missing Authentication for Critical Function"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 9.5,
+        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"
+      }
+    }
   }
 ]

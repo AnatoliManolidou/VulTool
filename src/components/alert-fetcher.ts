@@ -189,7 +189,7 @@ export async function fetchRecentAdvisories(
   demoMode: boolean = false,
 ): Promise<Advisory[]> {
   if (demoMode) {
-    return fetchDemoAdvisories(8);
+    return fetchDemoAdvisories(20);
   }
 
   const octokit = github.getOctokit(token);
