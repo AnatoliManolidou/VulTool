@@ -24,6 +24,14 @@ inputs:
   discord_webhook_url:
     description: 'Discord webhook URL for pipeline notifications (optional — no notification sent if omitted)'
     required: false
+  rescan_mode:
+    description: 'Run in patch verification mode — re-scans a specific advisory on a fix branch to confirm the patch is effective'
+    required: false
+    default: 'false'
+  rescan_ghsa_id:
+    description: 'GHSA ID to target in rescan mode (required when rescan_mode is true)'
+    required: false
+    default: ''
 
 runs:
   using: 'node24'

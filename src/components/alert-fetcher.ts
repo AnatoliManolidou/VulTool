@@ -151,20 +151,8 @@ async function fetchWatchedAdvisories(
 
 // ─── Demo Feed ────────────────────────────────────────────────────────────────
 
-// Loads the bundled advisory-feed.json and returns a random sample of size n.
-function fetchDemoAdvisories(sampleSize: number): Advisory[] {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const nodes: any[] = require('../data/advisory-feed.json');
-
-  // Fisher-Yates shuffle, take first sampleSize
-  for (let i = nodes.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [nodes[i], nodes[j]] = [nodes[j], nodes[i]];
-  }
-  const sample = nodes.slice(0, Math.min(sampleSize, nodes.length));
-
-  // Apply the same node→Advisory mapping as the live feed path
-  const advisories: Advisory[] = sample.map((v: any): Advisory => ({
+function mapFeedNode(v: any): Advisory {
+  return {
     ghsaId:                 v.advisory.ghsaId,
     summary:                v.advisory.summary,
     description:            v.advisory.description ?? null,
@@ -175,9 +163,27 @@ function fetchDemoAdvisories(sampleSize: number): Advisory[] {
     vulnerableVersionRange: v.vulnerableVersionRange ?? null,
     firstPatchedVersion:    v.firstPatchedVersion?.identifier ?? null,
     ecosystem:              (v.package.ecosystem as string).toLowerCase() as Ecosystem,
-  }));
+  };
+}
 
-  return advisories;
+// Loads the bundled advisory-feed.json. In rescan mode returns only the entry
+// matching ghsaIdFilter; otherwise returns a random sample of size sampleSize.
+function fetchDemoAdvisories(sampleSize: number, ghsaIdFilter?: string): Advisory[] {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const nodes: any[] = require('../data/advisory-feed.json');
+
+  if (ghsaIdFilter) {
+    return nodes
+      .filter((n: any) => n.advisory.ghsaId === ghsaIdFilter)
+      .map(mapFeedNode);
+  }
+
+  // Fisher-Yates shuffle, take first sampleSize
+  for (let i = nodes.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [nodes[i], nodes[j]] = [nodes[j], nodes[i]];
+  }
+  return nodes.slice(0, Math.min(sampleSize, nodes.length)).map(mapFeedNode);
 }
 
 // ─── Main Export ──────────────────────────────────────────────────────────────
@@ -187,9 +193,10 @@ export async function fetchRecentAdvisories(
   ecosystems: string[],
   watchedGhsaIds: string[] = [],
   demoMode: boolean = false,
+  rescanGhsaId?: string,
 ): Promise<Advisory[]> {
   if (demoMode) {
-    return fetchDemoAdvisories(20);
+    return fetchDemoAdvisories(20, rescanGhsaId);
   }
 
   const octokit = github.getOctokit(token);

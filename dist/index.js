@@ -41212,18 +41212,8 @@ async function fetchWatchedAdvisories(octokit, ghsaIds) {
     return results;
 }
 // ─── Demo Feed ────────────────────────────────────────────────────────────────
-// Loads the bundled advisory-feed.json and returns a random sample of size n.
-function fetchDemoAdvisories(sampleSize) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const nodes = __nccwpck_require__(51020);
-    // Fisher-Yates shuffle, take first sampleSize
-    for (let i = nodes.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [nodes[i], nodes[j]] = [nodes[j], nodes[i]];
-    }
-    const sample = nodes.slice(0, Math.min(sampleSize, nodes.length));
-    // Apply the same node→Advisory mapping as the live feed path
-    const advisories = sample.map((v) => ({
+function mapFeedNode(v) {
+    return {
         ghsaId: v.advisory.ghsaId,
         summary: v.advisory.summary,
         description: v.advisory.description ?? null,
@@ -41234,13 +41224,29 @@ function fetchDemoAdvisories(sampleSize) {
         vulnerableVersionRange: v.vulnerableVersionRange ?? null,
         firstPatchedVersion: v.firstPatchedVersion?.identifier ?? null,
         ecosystem: v.package.ecosystem.toLowerCase(),
-    }));
-    return advisories;
+    };
+}
+// Loads the bundled advisory-feed.json. In rescan mode returns only the entry
+// matching ghsaIdFilter; otherwise returns a random sample of size sampleSize.
+function fetchDemoAdvisories(sampleSize, ghsaIdFilter) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const nodes = __nccwpck_require__(51020);
+    if (ghsaIdFilter) {
+        return nodes
+            .filter((n) => n.advisory.ghsaId === ghsaIdFilter)
+            .map(mapFeedNode);
+    }
+    // Fisher-Yates shuffle, take first sampleSize
+    for (let i = nodes.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [nodes[i], nodes[j]] = [nodes[j], nodes[i]];
+    }
+    return nodes.slice(0, Math.min(sampleSize, nodes.length)).map(mapFeedNode);
 }
 // ─── Main Export ──────────────────────────────────────────────────────────────
-async function fetchRecentAdvisories(token, ecosystems, watchedGhsaIds = [], demoMode = false) {
+async function fetchRecentAdvisories(token, ecosystems, watchedGhsaIds = [], demoMode = false, rescanGhsaId) {
     if (demoMode) {
-        return fetchDemoAdvisories(20);
+        return fetchDemoAdvisories(20, rescanGhsaId);
     }
     const octokit = github.getOctokit(token);
     try {
@@ -43681,6 +43687,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 const core = __importStar(__nccwpck_require__(37484));
 const cache = __importStar(__nccwpck_require__(5116));
+const github = __importStar(__nccwpck_require__(93228));
 const fs = __importStar(__nccwpck_require__(79896));
 const path = __importStar(__nccwpck_require__(16928));
 const child_process_1 = __nccwpck_require__(35317);
@@ -43884,6 +43891,18 @@ function createFixBranch(ghsaId, packageName, modifiedFiles, workspacePath) {
     git(['checkout', '-']);
     return branch;
 }
+async function triggerRescan(token, ghsaId, fixBranch) {
+    const octokit = github.getOctokit(token);
+    const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
+    const ref = process.env.GITHUB_REF_NAME ?? 'main';
+    await octokit.rest.actions.createWorkflowDispatch({
+        owner,
+        repo,
+        workflow_id: 'rescan.yml',
+        ref,
+        inputs: { ghsa_id: ghsaId, fix_branch: fixBranch },
+    });
+}
 async function main() {
     try {
         const token = core.getInput('github_token', { required: true });
@@ -43895,14 +43914,22 @@ async function main() {
         const llmApiKey = core.getInput('llm_api_key');
         const discordWebhook = core.getInput('discord_webhook_url');
         const demoMode = core.getInput('demo_mode') === 'true';
+        const rescanMode = core.getInput('rescan_mode') === 'true';
+        const rescanGhsaId = core.getInput('rescan_ghsa_id') || undefined;
         core.setSecret(token);
         const repoName = process.env.GITHUB_REPOSITORY ?? 'unknown/unknown';
         const workspacePath = process.env.GITHUB_WORKSPACE || process.cwd();
         const HEAVY = '━'.repeat(60);
         const LIGHT = '─'.repeat(60);
         core.info(HEAVY);
-        core.info('  CTI VULNERABILITY SCANNER');
-        core.info(`  ${repoName}  |  Threshold: ${threshold}${demoMode ? '  |  Demo Mode' : ''}`);
+        if (rescanMode) {
+            core.info('  PATCH VERIFICATION SCAN');
+            core.info(`  ${repoName}  |  Advisory: ${rescanGhsaId ?? 'unknown'}`);
+        }
+        else {
+            core.info('  CTI VULNERABILITY SCANNER');
+            core.info(`  ${repoName}  |  Threshold: ${threshold}${demoMode ? '  |  Demo Mode' : ''}`);
+        }
         core.info(HEAVY);
         core.info('');
         // --- C1: ECOSYSTEM DETECTOR ---
@@ -43918,8 +43945,8 @@ async function main() {
             return;
         }
         // --- C2: ALERT FETCHER ---
-        const rawAdvisories = await (0, alert_fetcher_1.fetchRecentAdvisories)(token, detectedEcosystems, watchedGhsaIds, demoMode);
-        core.info(`  [C2] Alert Fetcher          → ${rawAdvisories.length} advisories fetched`);
+        const rawAdvisories = await (0, alert_fetcher_1.fetchRecentAdvisories)(token, detectedEcosystems, watchedGhsaIds, demoMode, rescanGhsaId);
+        core.info(`  [C2] Alert Fetcher          → ${rawAdvisories.length} advisor${rawAdvisories.length === 1 ? 'y' : 'ies'} ${rescanMode ? 'loaded' : 'fetched'}`);
         if (rawAdvisories.length === 0) {
             core.info('');
             core.info('  No recent advisories from the CTI feed.');
@@ -44042,12 +44069,16 @@ async function main() {
         const remediationReports = new Map();
         const verificationResults = new Map();
         const fixBranches = new Map();
+        const rescanTriggered = new Set();
         const actionableVerdicts = new Set(['EXPLOITABLE', 'CONDITIONALLY_EXPLOITABLE']);
         const remediationTargets = exploitContexts.filter(ctx => {
             const v = parseVerdict(llmReports.get(ctx.threat.ghsaId) ?? '');
             return v && actionableVerdicts.has(v);
         });
-        if (remediationTargets.length === 0 || !llmApiKey) {
+        if (rescanMode) {
+            core.info(`  [C10] Remediation Engine     → skipped — patch verification scan`);
+        }
+        else if (remediationTargets.length === 0 || !llmApiKey) {
             core.info(`  [C10] Remediation Engine     → ${!llmApiKey ? 'skipped — no API key' : 'skipped — no actionable verdicts'}`);
         }
         else {
@@ -44111,6 +44142,14 @@ async function main() {
                         try {
                             const branch = createFixBranch(ctx.threat.ghsaId, ctx.threat.packageName, [targetFile], workspacePath);
                             fixBranches.set(ctx.threat.ghsaId, branch);
+                            // Step 5: trigger patch verification re-scan on the fix branch
+                            try {
+                                await triggerRescan(token, ctx.threat.ghsaId, branch);
+                                rescanTriggered.add(ctx.threat.ghsaId);
+                            }
+                            catch (err) {
+                                core.warning(`  Re-scan dispatch failed for ${ctx.threat.ghsaId}: ${err instanceof Error ? err.message : String(err)}`);
+                            }
                         }
                         catch (err) {
                             (0, fix_applier_1.revertFile)(targetFile, originalContent);
@@ -44206,6 +44245,9 @@ async function main() {
                 if (verified === true && branch) {
                     core.info(`  Verification : CONFIRMED — fix eliminates the vulnerability`);
                     core.info(`  Branch       : ${branch}`);
+                    if (rescanTriggered.has(ctx.threat.ghsaId)) {
+                        core.info(`  Re-scan      : triggered — patch verification queued on ${branch}`);
+                    }
                 }
                 else if (verified === true && !branch) {
                     core.info(`  Verification : CONFIRMED — branch creation failed; apply the fix above manually`);
@@ -44227,28 +44269,39 @@ async function main() {
         const refused = verdicts.filter(v => v === 'REFUSED').length;
         const adjacentRisks = [...llmReports.values()].flatMap(parseAdjacentRisks);
         core.info(HEAVY);
-        core.info('  PIPELINE COMPLETE');
-        const parts = [
-            `${sortedThreats.length} threat(s) confirmed`,
-            `${codeSlices.length} with active code usage`,
-        ];
-        if (verdicts.length > 0) {
-            const vParts = [];
-            if (exploitable > 0)
-                vParts.push(`EXPLOITABLE: ${exploitable}`);
-            if (conditional > 0)
-                vParts.push(`CONDITIONAL: ${conditional}`);
-            if (notExploitable > 0)
-                vParts.push(`NOT EXPLOITABLE: ${notExploitable}`);
-            if (refused > 0)
-                vParts.push(`REFUSED: ${refused}`);
-            parts.push(vParts.join('  '));
+        if (rescanMode) {
+            core.info('  PATCH VERIFICATION COMPLETE');
+            const patchVerdict = notExploitable > 0
+                ? `PATCH_CONFIRMED — vulnerability no longer reachable`
+                : exploitable > 0
+                    ? `PATCH_FAILED — vulnerability still reachable after fix`
+                    : `PATCH_INCONCLUSIVE — no exploit verdict produced`;
+            core.info(`  ${rescanGhsaId} → ${patchVerdict}`);
         }
-        if (adjacentRisks.length > 0)
-            parts.push(`ADJACENT RISKS: ${adjacentRisks.length}`);
-        if (fixBranches.size > 0)
-            parts.push(`FIX BRANCHES: ${fixBranches.size}`);
-        core.info(`  ${parts.join('  |  ')}`);
+        else {
+            core.info('  PIPELINE COMPLETE');
+            const parts = [
+                `${sortedThreats.length} threat(s) confirmed`,
+                `${codeSlices.length} with active code usage`,
+            ];
+            if (verdicts.length > 0) {
+                const vParts = [];
+                if (exploitable > 0)
+                    vParts.push(`EXPLOITABLE: ${exploitable}`);
+                if (conditional > 0)
+                    vParts.push(`CONDITIONAL: ${conditional}`);
+                if (notExploitable > 0)
+                    vParts.push(`NOT EXPLOITABLE: ${notExploitable}`);
+                if (refused > 0)
+                    vParts.push(`REFUSED: ${refused}`);
+                parts.push(vParts.join('  '));
+            }
+            if (adjacentRisks.length > 0)
+                parts.push(`ADJACENT RISKS: ${adjacentRisks.length}`);
+            if (fixBranches.size > 0)
+                parts.push(`FIX BRANCHES: ${fixBranches.size}`);
+            core.info(`  ${parts.join('  |  ')}`);
+        }
         core.info(HEAVY);
         if (discordWebhook) {
             await sendDiscordNotification(discordWebhook, buildDiscordPayload(repoName, sortedThreats, exploitContexts, llmReports, verdicts));
