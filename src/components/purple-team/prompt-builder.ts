@@ -1,6 +1,6 @@
 import { ExploitContext } from './types';
 
-export function buildExploitPrompt(ctx: ExploitContext): string {
+export function buildExploitPrompt(ctx: ExploitContext, includeAdjacentRisks: boolean = true): string {
   const { threat, codeSlice, entryPoint, callChain, guards, attackClass, advisoryRichness } = ctx;
 
   const attackPath = entryPoint
@@ -84,13 +84,13 @@ A concrete test case a developer can use to confirm whether the vulnerability is
 A single line in this exact format:
 VERDICT: <EXPLOITABLE|CONDITIONALLY_EXPLOITABLE|NOT_EXPLOITABLE> — <one sentence justification>
 
-## Adjacent Risks
+${includeAdjacentRisks ? `## Adjacent Risks
 While reviewing the code path above, identify any other security weaknesses in the *application's own code* — such as SSRF, injection flaws, missing authentication, open redirects, or insecure deserialization — that are distinct from the library advisory under review.
 
 For each finding, one line in this exact format:
 ADJACENT_RISK: <vulnerability type> — <one sentence: what the application code does wrong and how it could be triggered>
 
 If you observed no adjacent risks in the code above, write exactly:
-ADJACENT_RISK: none
+ADJACENT_RISK: none` : ''}
 `.trim();
 }

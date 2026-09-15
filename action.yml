@@ -32,6 +32,10 @@ inputs:
     description: 'GHSA ID to target in rescan mode (required when rescan_mode is true)'
     required: false
     default: ''
+  adjacent_risks:
+    description: 'Include adjacent risk findings in the exploit analysis — secondary vulnerabilities in the application code spotted while reviewing the attack path (separate from the advisory under analysis)'
+    required: false
+    default: 'false'
 
 runs:
   using: 'node24'

@@ -43268,7 +43268,7 @@ async function callLLM(apiKey, prompt) {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.buildExploitPrompt = buildExploitPrompt;
-function buildExploitPrompt(ctx) {
+function buildExploitPrompt(ctx, includeAdjacentRisks = true) {
     const { threat, codeSlice, entryPoint, callChain, guards, attackClass, advisoryRichness } = ctx;
     const attackPath = entryPoint
         ? [
@@ -43346,14 +43346,14 @@ A concrete test case a developer can use to confirm whether the vulnerability is
 A single line in this exact format:
 VERDICT: <EXPLOITABLE|CONDITIONALLY_EXPLOITABLE|NOT_EXPLOITABLE> — <one sentence justification>
 
-## Adjacent Risks
+${includeAdjacentRisks ? `## Adjacent Risks
 While reviewing the code path above, identify any other security weaknesses in the *application's own code* — such as SSRF, injection flaws, missing authentication, open redirects, or insecure deserialization — that are distinct from the library advisory under review.
 
 For each finding, one line in this exact format:
 ADJACENT_RISK: <vulnerability type> — <one sentence: what the application code does wrong and how it could be triggered>
 
 If you observed no adjacent risks in the code above, write exactly:
-ADJACENT_RISK: none
+ADJACENT_RISK: none` : ''}
 `.trim();
 }
 
@@ -43916,6 +43916,7 @@ async function main() {
         const demoMode = core.getInput('demo_mode') === 'true';
         const rescanMode = core.getInput('rescan_mode') === 'true';
         const rescanGhsaId = core.getInput('rescan_ghsa_id') || undefined;
+        const includeAdjacentRisks = core.getInput('adjacent_risks') === 'true';
         core.setSecret(token);
         const repoName = process.env.GITHUB_REPOSITORY ?? 'unknown/unknown';
         const workspacePath = process.env.GITHUB_WORKSPACE || process.cwd();
@@ -44056,7 +44057,7 @@ async function main() {
         else {
             for (const ctx of exploitContexts) {
                 try {
-                    const report = await (0, llm_client_1.callLLM)(llmApiKey, (0, prompt_builder_1.buildExploitPrompt)(ctx));
+                    const report = await (0, llm_client_1.callLLM)(llmApiKey, (0, prompt_builder_1.buildExploitPrompt)(ctx, includeAdjacentRisks));
                     llmReports.set(ctx.threat.ghsaId, report);
                 }
                 catch (err) {
@@ -44267,7 +44268,7 @@ async function main() {
         const conditional = verdicts.filter(v => v === 'CONDITIONALLY_EXPLOITABLE').length;
         const notExploitable = verdicts.filter(v => v === 'NOT_EXPLOITABLE').length;
         const refused = verdicts.filter(v => v === 'REFUSED').length;
-        const adjacentRisks = [...llmReports.values()].flatMap(parseAdjacentRisks);
+        const adjacentRisks = includeAdjacentRisks ? [...llmReports.values()].flatMap(parseAdjacentRisks) : [];
         core.info(HEAVY);
         if (rescanMode) {
             core.info('  PATCH VERIFICATION COMPLETE');

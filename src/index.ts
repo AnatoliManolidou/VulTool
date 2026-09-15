@@ -239,8 +239,9 @@ async function main() {
     const llmApiKey      = core.getInput('llm_api_key');
     const discordWebhook = core.getInput('discord_webhook_url');
     const demoMode       = core.getInput('demo_mode') === 'true';
-    const rescanMode     = core.getInput('rescan_mode') === 'true';
-    const rescanGhsaId   = core.getInput('rescan_ghsa_id') || undefined;
+    const rescanMode        = core.getInput('rescan_mode') === 'true';
+    const rescanGhsaId      = core.getInput('rescan_ghsa_id') || undefined;
+    const includeAdjacentRisks = core.getInput('adjacent_risks') === 'true';
     core.setSecret(token);
 
     const repoName      = process.env.GITHUB_REPOSITORY ?? 'unknown/unknown';
@@ -396,7 +397,7 @@ async function main() {
     } else {
       for (const ctx of exploitContexts) {
         try {
-          const report = await callLLM(llmApiKey, buildExploitPrompt(ctx));
+          const report = await callLLM(llmApiKey, buildExploitPrompt(ctx, includeAdjacentRisks));
           llmReports.set(ctx.threat.ghsaId, report);
         } catch (err) {
           core.warning(`  LLM call failed for ${ctx.threat.packageName}: ${err instanceof Error ? err.message : String(err)}`);
@@ -618,7 +619,7 @@ async function main() {
     const conditional     = verdicts.filter(v => v === 'CONDITIONALLY_EXPLOITABLE').length;
     const notExploitable  = verdicts.filter(v => v === 'NOT_EXPLOITABLE').length;
     const refused         = verdicts.filter(v => v === 'REFUSED').length;
-    const adjacentRisks   = [...llmReports.values()].flatMap(parseAdjacentRisks);
+    const adjacentRisks   = includeAdjacentRisks ? [...llmReports.values()].flatMap(parseAdjacentRisks) : [];
 
     core.info(HEAVY);
     if (rescanMode) {
