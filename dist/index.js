@@ -44303,6 +44303,41 @@ async function main() {
             core.info(`  ${parts.join('  |  ')}`);
         }
         core.info(HEAVY);
+        // ── WRITE RUN RESULT ────────────────────────────────────────────────────────
+        try {
+            const runResult = rescanMode
+                ? {
+                    mode: 'rescan',
+                    timestamp: new Date().toISOString(),
+                    repo: process.env.GITHUB_REPOSITORY ?? 'unknown',
+                    runId: process.env.GITHUB_RUN_ID ?? 'unknown',
+                    ghsaId: rescanGhsaId ?? null,
+                    patchVerdict: notExploitable > 0 ? 'PATCH_CONFIRMED'
+                        : exploitable > 0 ? 'PATCH_FAILED' : 'PATCH_INCONCLUSIVE',
+                }
+                : {
+                    mode: 'main',
+                    timestamp: new Date().toISOString(),
+                    repo: process.env.GITHUB_REPOSITORY ?? 'unknown',
+                    runId: process.env.GITHUB_RUN_ID ?? 'unknown',
+                    threats: sortedThreats.map(t => ({
+                        package: t.packageName,
+                        ghsaId: t.ghsaId,
+                        severity: t.severity,
+                        hasDirectUsage: codeSlices.some(s => s.threatGhsaId === t.ghsaId),
+                        analyzedByLLM: llmReports.has(t.ghsaId),
+                        verdict: parseVerdict(llmReports.get(t.ghsaId) ?? '') ?? null,
+                        patchAttempted: verificationResults.has(t.ghsaId),
+                        patchConfirmed: verificationResults.get(t.ghsaId) ?? null,
+                        fixBranch: fixBranches.get(t.ghsaId) ?? null,
+                        rescanTriggered: rescanTriggered.has(t.ghsaId),
+                    })),
+                };
+            fs.writeFileSync('/tmp/vultool-run-result.json', JSON.stringify(runResult, null, 2));
+        }
+        catch (err) {
+            core.warning(`Failed to write run result: ${err instanceof Error ? err.message : String(err)}`);
+        }
         if (discordWebhook) {
             await sendDiscordNotification(discordWebhook, buildDiscordPayload(repoName, sortedThreats, exploitContexts, llmReports, verdicts));
         }
