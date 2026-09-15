@@ -350,7 +350,7 @@ async function main() {
     const contextualizedThreats: Threat[] = classifyDeploymentContext(confirmedAdvisories, workspacePath, detectedEcosystems);
     core.info(`  [C5] Deployment Classifier  → ${contextualizedThreats.length} threats classified`);
 
-    // --- C6: REMEDIATION QUEUE ---
+    // --- C6: THREAT PRIORITIZER ---
     const sortedThreats: Threat[] = prioritizeThreats(contextualizedThreats);
     core.info(`  [C6] Threat Prioritizer     → ${sortedThreats.length} threats queued`);
 

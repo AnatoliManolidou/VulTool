@@ -40,7 +40,7 @@ export function detectEcosystems(workspacePath: string): { ecosystems: string[] 
       try {
         const rootEntries = fs.readdirSync(workspacePath);
         if (rootEntries.some(f => f.endsWith('.csproj'))) {
-          core.info('Found .csproj file -> Target Ecosystem: nuget');
+          core.info('Found .csproj file → Target Ecosystem: nuget');
           ecosystems.push('nuget');
         }
       } catch { /* non-critical */ }

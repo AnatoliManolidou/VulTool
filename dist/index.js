@@ -42289,7 +42289,7 @@ function detectEcosystems(workspacePath) {
             try {
                 const rootEntries = fs.readdirSync(workspacePath);
                 if (rootEntries.some(f => f.endsWith('.csproj'))) {
-                    core.info('Found .csproj file -> Target Ecosystem: nuget');
+                    core.info('Found .csproj file → Target Ecosystem: nuget');
                     ecosystems.push('nuget');
                 }
             }
@@ -44010,7 +44010,7 @@ async function main() {
         // --- C5: DEPLOYMENT CLASSIFIER ---
         const contextualizedThreats = (0, deployment_classifier_1.classifyDeploymentContext)(confirmedAdvisories, workspacePath, detectedEcosystems);
         core.info(`  [C5] Deployment Classifier  → ${contextualizedThreats.length} threats classified`);
-        // --- C6: REMEDIATION QUEUE ---
+        // --- C6: THREAT PRIORITIZER ---
         const sortedThreats = (0, threat_prioritizer_1.prioritizeThreats)(contextualizedThreats);
         core.info(`  [C6] Threat Prioritizer     → ${sortedThreats.length} threats queued`);
         // --- C7: AST ANALYZER ---
