@@ -215,6 +215,21 @@ function createFixBranch(
   return branch;
 }
 
+async function createGithubIssue(token: string, title: string, body: string): Promise<void> {
+  const octokit = github.getOctokit(token);
+  const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
+  try {
+    await octokit.rest.issues.create({ owner, repo, title, body, labels: ['security'] });
+  } catch {
+    // 'security' label may not exist in the target repo — retry without labels
+    try {
+      await octokit.rest.issues.create({ owner, repo, title, body });
+    } catch (err) {
+      core.warning(`Failed to create GitHub Issue: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+}
+
 async function triggerRescan(token: string, ghsaId: string, fixBranch: string): Promise<void> {
   const octokit = github.getOctokit(token);
   const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
@@ -242,6 +257,7 @@ async function main() {
     const rescanMode        = core.getInput('rescan_mode') === 'true';
     const rescanGhsaId      = core.getInput('rescan_ghsa_id') || undefined;
     const includeAdjacentRisks = core.getInput('adjacent_risks') === 'true';
+    const createIssue          = core.getInput('create_issue') === 'true';
     core.setSecret(token);
 
     const repoName      = process.env.GITHUB_REPOSITORY ?? 'unknown/unknown';
@@ -521,6 +537,53 @@ async function main() {
       const branchCount = fixBranches.size;
       const fixCount    = remediationReports.size;
       core.info(`  [C10] Remediation Engine     → ${fixCount} fix(es) generated, ${branchCount} branch(es) created`);
+    }
+
+    // --- GITHUB ISSUE REPORTER ---
+    if (createIssue && !rescanMode && remediationTargets.length > 0) {
+      const runUrl = `https://github.com/${repoName}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`;
+      for (const ctx of remediationTargets) {
+        const report   = llmReports.get(ctx.threat.ghsaId) ?? '';
+        const branch   = fixBranches.get(ctx.threat.ghsaId);
+        const verified = verificationResults.get(ctx.threat.ghsaId);
+        const verdict  = parseVerdict(report) ?? 'unknown';
+
+        const fixSection = branch && verified === true
+          ? `### Automated Fix\n\nA patch has been generated and pushed to [\`${branch}\`](../../tree/${branch}). Review and merge after validation.\n\n> Patch verification (rescan) triggered automatically on the fix branch.`
+          : branch
+            ? `### Automated Fix (Unverified)\n\nA patch was generated but could not be verified automatically. Branch [\`${branch}\`](../../tree/${branch}) contains the proposed fix — review manually.`
+            : `### Remediation Required\n\nNo automated fix was generated. Manual remediation is required. See the [advisory](https://github.com/advisories/${ctx.threat.ghsaId}) for patch guidance.`;
+
+        const issueBody = [
+          `## Vulnerability Confirmed Exploitable`,
+          ``,
+          `| | |`,
+          `|---|---|`,
+          `| **Package** | \`${ctx.threat.packageName}\` |`,
+          `| **Advisory** | [${ctx.threat.ghsaId}](https://github.com/advisories/${ctx.threat.ghsaId}) |`,
+          `| **Severity** | ${ctx.threat.severity} |`,
+          `| **Verdict** | ${verdict} |`,
+          `| **Attack path** | \`${buildAttackPathString(ctx)}\` |`,
+          ``,
+          `---`,
+          ``,
+          `### Exploit Analysis`,
+          ``,
+          report,
+          ``,
+          `---`,
+          ``,
+          fixSection,
+          ``,
+          `---`,
+          ``,
+          `> *Opened automatically by VulTool · [Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})*`,
+        ].join('\n');
+
+        const issueTitle = `[VulTool] ${ctx.threat.severity} · ${ctx.threat.packageName} (${ctx.threat.ghsaId}) confirmed exploitable`;
+        await createGithubIssue(token, issueTitle, issueBody);
+      }
+      core.info(`  Issues opened for ${remediationTargets.length} exploitable threat(s)`);
     }
 
     await saveSeenGhsaIds(currentIds);

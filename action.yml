@@ -36,6 +36,10 @@ inputs:
     description: 'Include adjacent risk findings in the exploit analysis — secondary vulnerabilities in the application code spotted while reviewing the attack path (separate from the advisory under analysis)'
     required: false
     default: 'false'
+  create_issue:
+    description: 'Open a GitHub Issue for each confirmed exploitable vulnerability with the full exploit analysis report and fix branch link'
+    required: false
+    default: 'false'
 
 runs:
   using: 'node24'
