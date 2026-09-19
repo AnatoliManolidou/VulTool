@@ -539,23 +539,18 @@ async function main() {
       core.info(`  [C10] Remediation Engine     → ${fixCount} fix(es) generated, ${branchCount} branch(es) created`);
     }
 
-    // --- GITHUB ISSUE REPORTER ---
-    if (createIssue && !rescanMode && remediationTargets.length > 0) {
+    // --- GITHUB ISSUE REPORTER (main run) ---
+    // Only open issues for exploitable findings where no fix branch was created —
+    // findings with a fix branch will be handled by the rescan after verdict is known.
+    if (createIssue && !rescanMode) {
       const runUrl = `https://github.com/${repoName}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`;
-      for (const ctx of remediationTargets) {
-        const report   = llmReports.get(ctx.threat.ghsaId) ?? '';
-        const branch   = fixBranches.get(ctx.threat.ghsaId);
-        const verified = verificationResults.get(ctx.threat.ghsaId);
-        const verdict  = parseVerdict(report) ?? 'unknown';
-
-        const fixSection = branch && verified === true
-          ? `### Automated Fix\n\nA patch has been generated and pushed to [\`${branch}\`](../../tree/${branch}). Review and merge after validation.\n\n> Patch verification (rescan) triggered automatically on the fix branch.`
-          : branch
-            ? `### Automated Fix (Unverified)\n\nA patch was generated but could not be verified automatically. Branch [\`${branch}\`](../../tree/${branch}) contains the proposed fix — review manually.`
-            : `### Remediation Required\n\nNo automated fix was generated. Manual remediation is required. See the [advisory](https://github.com/advisories/${ctx.threat.ghsaId}) for patch guidance.`;
+      const unfixedTargets = remediationTargets.filter(ctx => !fixBranches.has(ctx.threat.ghsaId));
+      for (const ctx of unfixedTargets) {
+        const report  = llmReports.get(ctx.threat.ghsaId) ?? '';
+        const verdict = parseVerdict(report) ?? 'unknown';
 
         const issueBody = [
-          `## Vulnerability Confirmed Exploitable`,
+          `## Vulnerability Confirmed Exploitable — No Automated Fix Generated`,
           ``,
           `| | |`,
           `|---|---|`,
@@ -573,7 +568,10 @@ async function main() {
           ``,
           `---`,
           ``,
-          fixSection,
+          `### Remediation Required`,
+          ``,
+          `No automated fix was generated for this finding. Manual remediation is required.`,
+          `See the [advisory](https://github.com/advisories/${ctx.threat.ghsaId}) for patch guidance.`,
           ``,
           `---`,
           ``,
@@ -583,7 +581,9 @@ async function main() {
         const issueTitle = `[VulTool] ${ctx.threat.severity} · ${ctx.threat.packageName} (${ctx.threat.ghsaId}) confirmed exploitable`;
         await createGithubIssue(token, issueTitle, issueBody);
       }
-      core.info(`  Issues opened for ${remediationTargets.length} exploitable threat(s)`);
+      if (unfixedTargets.length > 0) {
+        core.info(`  Issues opened for ${unfixedTargets.length} exploitable threat(s) without automated fix`);
+      }
     }
 
     await saveSeenGhsaIds(currentIds);
@@ -693,6 +693,88 @@ async function main() {
           ? `PATCH_FAILED — vulnerability still reachable after fix`
           : `PATCH_INCONCLUSIVE — no exploit verdict produced`;
       core.info(`  ${rescanGhsaId} → ${patchVerdict}`);
+
+      // PATCH_CONFIRMED — fix is verified; open an issue so the team knows to review and merge
+      if (createIssue && notExploitable > 0 && exploitContexts.length > 0) {
+        const runUrl = `https://github.com/${repoName}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`;
+        const ctx    = exploitContexts[0];
+        const fixBranch = `vultool/fix-${rescanGhsaId?.toLowerCase() ?? ''}`;
+
+        const issueBody = [
+          `## Automated Fix Verified — Ready to Review and Merge`,
+          ``,
+          `| | |`,
+          `|---|---|`,
+          `| **Package** | \`${ctx.threat.packageName}\` |`,
+          `| **Advisory** | [${rescanGhsaId}](https://github.com/advisories/${rescanGhsaId}) |`,
+          `| **Severity** | ${ctx.threat.severity} |`,
+          `| **Patch verdict** | PATCH_CONFIRMED ✓ |`,
+          `| **Fix branch** | [\`${fixBranch}\`](../../tree/${fixBranch}) |`,
+          ``,
+          `---`,
+          ``,
+          `### What Happened`,
+          ``,
+          `VulTool detected this vulnerability as exploitable, generated an application-level fix,`,
+          `and confirmed via independent rescan that the patched code is no longer reachable.`,
+          ``,
+          `### Next Steps`,
+          ``,
+          `1. Review the changes on [\`${fixBranch}\`](../../compare/${fixBranch})`,
+          `2. Open a pull request and merge after approval`,
+          `3. Close this issue once merged`,
+          ``,
+          `---`,
+          ``,
+          `> *Opened automatically by VulTool (patch verification scan) · [Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})*`,
+        ].join('\n');
+
+        const issueTitle = `[VulTool] PATCH CONFIRMED · ${ctx.threat.packageName} (${rescanGhsaId}) — fix ready to merge`;
+        await createGithubIssue(token, issueTitle, issueBody);
+        core.info(`  Issue opened for verified fix on ${rescanGhsaId}`);
+      }
+
+      // PATCH_FAILED — open an issue because the automated fix was insufficient
+      if (createIssue && exploitable > 0 && exploitContexts.length > 0) {
+        const runUrl = `https://github.com/${repoName}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`;
+        const ctx    = exploitContexts[0];
+        const report = llmReports.get(ctx.threat.ghsaId) ?? '';
+
+        const issueBody = [
+          `## Automated Fix Failed — Vulnerability Still Reachable`,
+          ``,
+          `| | |`,
+          `|---|---|`,
+          `| **Package** | \`${ctx.threat.packageName}\` |`,
+          `| **Advisory** | [${rescanGhsaId}](https://github.com/advisories/${rescanGhsaId}) |`,
+          `| **Severity** | ${ctx.threat.severity} |`,
+          `| **Patch verdict** | PATCH_FAILED |`,
+          `| **Attack path** | \`${buildAttackPathString(ctx)}\` |`,
+          ``,
+          `---`,
+          ``,
+          `### Why the Fix Failed`,
+          ``,
+          `The automated patch was applied and a rescan was triggered. The rescan determined the vulnerability remains exploitable. Rescan exploit analysis:`,
+          ``,
+          report,
+          ``,
+          `---`,
+          ``,
+          `### Remediation Required`,
+          ``,
+          `The automated fix was insufficient. Manual review and remediation are required.`,
+          `See the [advisory](https://github.com/advisories/${rescanGhsaId}) for patch guidance.`,
+          ``,
+          `---`,
+          ``,
+          `> *Opened automatically by VulTool (patch verification scan) · [Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})*`,
+        ].join('\n');
+
+        const issueTitle = `[VulTool] PATCH FAILED · ${ctx.threat.packageName} (${rescanGhsaId}) — vulnerability still reachable after automated fix`;
+        await createGithubIssue(token, issueTitle, issueBody);
+        core.info(`  Issue opened for patch failure on ${rescanGhsaId}`);
+      }
     } else {
       core.info('  PIPELINE COMPLETE');
       const parts = [

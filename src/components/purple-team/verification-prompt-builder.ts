@@ -9,7 +9,7 @@ export function buildVerificationPrompt(
   const triggerConditions = extractSection(exploitReport, 'Trigger Conditions');
 
   return `
-You are a software security engineer. You previously confirmed this vulnerability is reachable in this codebase.
+You are a software security engineer performing adversarial review of a proposed security fix. Your job is to determine whether the fix actually stops the attack — not whether it looks correct at a glance.
 
 Package      : ${ctx.threat.packageName}
 Advisory     : ${ctx.threat.ghsaId}
@@ -21,18 +21,30 @@ ORIGINAL VULNERABLE CODE:
 ${originalCode}
 \`\`\`
 
-PROPOSED APPLICATION-LEVEL FIX:
+PROPOSED FIX:
 \`\`\`javascript
 ${fixedCode}
 \`\`\`
 
-ORIGINAL TRIGGER CONDITIONS:
+ORIGINAL TRIGGER CONDITIONS (the exact attack that was confirmed exploitable):
 ${triggerConditions || ctx.threat.summary}
 
-Does the proposed fix prevent the vulnerability from being triggered through the original code path? Evaluate only the application-level code change — do not factor in library upgrades.
+═══════════════════════════════════════════════
+TASK — answer in order, do not skip steps
+═══════════════════════════════════════════════
 
-Answer with exactly one line in this format:
-VERIFICATION: <YES|NO> — <one sentence explaining whether the fix eliminates the vulnerability>
+## Step 1: Simulate the attack against the fixed code
+Trace the execution of the original attack payload through the fixed code, line by line. State exactly which line in the fix intercepts or rejects the malicious input.
+
+## Step 2: Check for bypass paths
+Answer each question explicitly (yes/no + reason):
+- Can the security check throw an exception that is caught and silently ignored, allowing execution to continue to the vulnerable call?
+- Is there any code path (branch, early return, exception handler) that reaches the vulnerable function call despite the fix being present?
+- Does the fix cover all input representations of the attack (e.g. different encodings, formats, or types)?
+
+## Step 3: Verdict
+A single line in this exact format:
+VERIFICATION: <YES|NO> — <one sentence: what specifically stops the attack, or what specific bypass makes the fix insufficient>
 `.trim();
 }
 
