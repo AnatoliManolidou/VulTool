@@ -43772,87 +43772,141 @@ async function sendDiscordNotification(webhookUrl, payload) {
     }
     catch { /* notification failure must never crash the pipeline */ }
 }
-function buildDiscordPayload(repoName, sortedThreats, exploitContexts, llmReports, verdicts) {
+const DC_RED = 0xC0392B; // exploit confirmed, patch failed, pipeline error
+const DC_ORANGE = 0xE67E22; // conditional exploit, unverified fix, refused, inconclusive
+const DC_GREEN = 0x27AE60; // not exploitable, patch confirmed
+const DC_BLUE = 0x2980B9; // informational — no threats, no advisories, no ecosystems
+const DC_GREY = 0x95A5A6; // threats detected but no code usage / no LLM analysis
+function discordEmbed(title, description, color, fields, repoName) {
     const runUrl = `https://github.com/${repoName}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`;
-    const exploitable = verdicts.filter(v => v === 'EXPLOITABLE').length;
-    const conditional = verdicts.filter(v => v === 'CONDITIONALLY_EXPLOITABLE').length;
-    const notExploitable = verdicts.filter(v => v === 'NOT_EXPLOITABLE').length;
-    const refused = verdicts.filter(v => v === 'REFUSED').length;
-    let color;
-    let title;
-    if (exploitable > 0) {
-        color = 15158332;
-        title = 'EXPLOITABLE THREAT DETECTED';
-    }
-    else if (conditional > 0) {
-        color = 15105570;
-        title = 'Conditional Exploit Confirmed';
-    }
-    else if (llmReports.size > 0 && refused < llmReports.size) {
-        color = 3066993;
-        title = 'Threats Analyzed — Not Exploitable';
-    }
-    else if (refused > 0) {
-        color = 10197915;
-        title = 'Model Refused Analysis';
-    }
-    else {
-        color = 3447003;
-        title = 'Threats Confirmed — No Exploit Analysis';
-    }
-    const fields = [
-        { name: 'Repository', value: repoName, inline: true },
-        { name: 'Threats', value: `${sortedThreats.length} confirmed`, inline: true },
-    ];
-    if (verdicts.length > 0) {
-        const parts = [];
-        if (exploitable > 0)
-            parts.push(`EXPLOITABLE: ${exploitable}`);
-        if (conditional > 0)
-            parts.push(`CONDITIONAL: ${conditional}`);
-        if (notExploitable > 0)
-            parts.push(`NOT EXPLOITABLE: ${notExploitable}`);
-        if (refused > 0)
-            parts.push(`REFUSED: ${refused}`);
-        fields.push({ name: 'Verdicts', value: parts.join(' | '), inline: false });
-    }
-    for (const t of sortedThreats.slice(0, 3)) {
-        const report = llmReports.get(t.ghsaId);
-        const verdict = report ? parseVerdict(report) : null;
-        const ctx = exploitContexts.find(c => c.threat.ghsaId === t.ghsaId);
-        const lines = [
-            `${t.severity}  |  ${t.ghsaId}`,
-            t.firstPatchedVersion ? `Fix: upgrade to ${t.firstPatchedVersion}` : 'No patch available',
-        ];
-        if (ctx)
-            lines.push(buildAttackPathString(ctx));
-        if (verdict)
-            lines.push(`**${verdict}**`);
-        fields.push({ name: t.packageName, value: lines.join('\n'), inline: false });
-    }
     return {
         embeds: [{
-                title,
-                color,
-                fields,
+                title, description, color, fields,
                 url: runUrl,
                 timestamp: new Date().toISOString(),
                 footer: { text: 'VulTool CTI Scanner' },
             }],
     };
 }
-function buildDiscordErrorPayload(repoName, message) {
-    const runUrl = `https://github.com/${repoName}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`;
-    return {
-        embeds: [{
-                title: 'VulTool Pipeline Error',
-                description: message,
-                color: 15158332,
-                url: runUrl,
-                timestamp: new Date().toISOString(),
-                footer: { text: 'VulTool CTI Scanner' },
-            }],
+function discordNoEcosystems(repoName) {
+    return discordEmbed('No Package Ecosystem Detected', 'No supported package manager files were found. Verify the action is configured against the correct repository.', DC_BLUE, [{ name: 'Repository', value: repoName, inline: true }], repoName);
+}
+function discordNoAdvisories(repoName) {
+    return discordEmbed('No Advisories in CTI Feed', 'The advisory feed returned no entries for the detected ecosystems. The feed will be checked again on the next scheduled run.', DC_BLUE, [{ name: 'Repository', value: repoName, inline: true }], repoName);
+}
+function discordDependencyMapperFailed(repoName) {
+    return discordEmbed('Dependency Mapper Failed', 'The GitHub SBOM API timed out or returned an error. Verify that the Dependency Graph is enabled in repository settings.', DC_ORANGE, [{ name: 'Repository', value: repoName, inline: true }], repoName);
+}
+function discordNoThreats(repoName, fetched, skipped) {
+    return discordEmbed('No Matching Vulnerabilities', `${fetched} advisor${fetched === 1 ? 'y' : 'ies'} fetched, ${skipped} filtered out — none matched the installed dependency set at the configured severity threshold.`, DC_GREEN, [{ name: 'Repository', value: repoName, inline: true }], repoName);
+}
+function discordAnalysisComplete(repoName, sortedThreats, exploitContexts, llmReports, fixBranches, verificationResults) {
+    const verdicts = [...llmReports.values()].map(parseVerdict).filter(Boolean);
+    const exploitable = verdicts.filter(v => v === 'EXPLOITABLE').length;
+    const conditional = verdicts.filter(v => v === 'CONDITIONALLY_EXPLOITABLE').length;
+    const notExploitable = verdicts.filter(v => v === 'NOT_EXPLOITABLE').length;
+    const refused = verdicts.filter(v => v === 'REFUSED').length;
+    const hasVerifiedFix = [...fixBranches.keys()].some(id => verificationResults.get(id) === true);
+    let title;
+    let description;
+    let color;
+    if (exploitable > 0 && hasVerifiedFix) {
+        title = 'Exploit Confirmed — Automated Fix Generated';
+        description = `${exploitable} exploitable threat(s) confirmed. An automated fix was generated and internally verified. A patch verification rescan has been triggered — a GitHub Issue will be opened once the rescan verdict is known.`;
+        color = DC_ORANGE;
+    }
+    else if (exploitable > 0) {
+        title = 'Exploit Confirmed — Manual Remediation Required';
+        description = `${exploitable} exploitable threat(s) confirmed. No automated fix was generated. A GitHub Issue has been opened with the full analysis.`;
+        color = DC_RED;
+    }
+    else if (conditional > 0) {
+        title = 'Conditional Exploit Confirmed';
+        description = `${conditional} conditionally exploitable threat(s) detected. Exploitability depends on runtime configuration or deployment context.`;
+        color = DC_ORANGE;
+    }
+    else if (refused > 0 && refused === llmReports.size) {
+        title = 'Model Refused Analysis';
+        description = 'The model declined to analyze the detected threats. Switch to a security-capable model for full exploit analysis.';
+        color = DC_ORANGE;
+    }
+    else if (notExploitable > 0) {
+        title = 'Threats Analyzed — Not Exploitable';
+        description = `${sortedThreats.length} threat(s) confirmed in the dependency set. LLM exploit analysis determined none are reachable in the current codebase.`;
+        color = DC_GREEN;
+    }
+    else if (exploitContexts.length === 0) {
+        title = 'Threats Detected — No Direct Code Usage';
+        description = `${sortedThreats.length} threat(s) confirmed in the dependency set but no direct code usage was found. These represent static risk only.`;
+        color = DC_GREY;
+    }
+    else {
+        title = 'Analysis Complete';
+        description = `${sortedThreats.length} threat(s) processed. No LLM analysis was performed — provide an API key to enable exploit analysis.`;
+        color = DC_GREY;
+    }
+    const fields = [
+        { name: 'Repository', value: repoName, inline: true },
+        { name: 'Threats confirmed', value: String(sortedThreats.length), inline: true },
+    ];
+    if (verdicts.length > 0) {
+        const parts = [];
+        if (exploitable > 0)
+            parts.push(`Exploitable: ${exploitable}`);
+        if (conditional > 0)
+            parts.push(`Conditional: ${conditional}`);
+        if (notExploitable > 0)
+            parts.push(`Not exploitable: ${notExploitable}`);
+        if (refused > 0)
+            parts.push(`Refused: ${refused}`);
+        fields.push({ name: 'Verdicts', value: parts.join(' | '), inline: false });
+    }
+    for (const ctx of exploitContexts.slice(0, 3)) {
+        const report = llmReports.get(ctx.threat.ghsaId);
+        const verdict = report ? parseVerdict(report) : null;
+        const branch = fixBranches.get(ctx.threat.ghsaId);
+        const verified = verificationResults.get(ctx.threat.ghsaId);
+        const lines = [
+            `${ctx.threat.severity}  |  ${ctx.threat.ghsaId}`,
+            buildAttackPathString(ctx),
+        ];
+        if (verdict)
+            lines.push(`Verdict: ${verdict}`);
+        if (branch && verified)
+            lines.push(`Fix branch: \`${branch}\` (verified — rescan pending)`);
+        else if (branch && !verified)
+            lines.push(`Fix branch: \`${branch}\` (verification failed)`);
+        fields.push({ name: ctx.threat.packageName, value: lines.join('\n'), inline: false });
+    }
+    return discordEmbed(title, description, color, fields, repoName);
+}
+function discordRescanComplete(repoName, ghsaId, patchVerdict, packageName) {
+    const configs = {
+        PATCH_CONFIRMED: {
+            title: 'Patch Verified — Vulnerability No Longer Reachable',
+            description: 'The automated fix was applied and the rescan confirmed the vulnerability is no longer reachable in the patched code. A GitHub Issue has been opened with instructions to review and merge the fix branch.',
+            color: DC_GREEN,
+        },
+        PATCH_FAILED: {
+            title: 'Patch Failed — Vulnerability Still Reachable',
+            description: 'The automated fix was applied but the rescan determined the vulnerability remains exploitable in the patched code. A GitHub Issue has been opened — manual remediation is required.',
+            color: DC_RED,
+        },
+        PATCH_INCONCLUSIVE: {
+            title: 'Patch Verification Inconclusive',
+            description: 'The rescan ran but did not produce a definitive exploit verdict. Manual review of the fix branch is recommended.',
+            color: DC_ORANGE,
+        },
     };
+    const { title, description, color } = configs[patchVerdict];
+    return discordEmbed(title, description, color, [
+        { name: 'Repository', value: repoName, inline: true },
+        { name: 'Advisory', value: ghsaId, inline: true },
+        { name: 'Package', value: packageName, inline: true },
+    ], repoName);
+}
+function discordPipelineError(repoName, message) {
+    return discordEmbed('Pipeline Error', message, DC_RED, [{ name: 'Repository', value: repoName, inline: true }], repoName);
 }
 function parseAdjacentRisks(report) {
     if (!report)
@@ -43969,9 +44023,8 @@ async function main() {
             core.info('');
             core.info('  No package manager files found — nothing to scan.');
             core.info(HEAVY);
-            if (discordWebhook) {
-                await sendDiscordNotification(discordWebhook, buildDiscordErrorPayload(repoName, 'No supported package ecosystems detected — no package.json or equivalent found. Verify the action is configured against the correct repository.'));
-            }
+            if (discordWebhook)
+                await sendDiscordNotification(discordWebhook, discordNoEcosystems(repoName));
             return;
         }
         // --- C2: ALERT FETCHER ---
@@ -43981,20 +44034,8 @@ async function main() {
             core.info('');
             core.info('  No recent advisories from the CTI feed.');
             core.info(HEAVY);
-            if (discordWebhook) {
-                const runUrl = `https://github.com/${repoName}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`;
-                await sendDiscordNotification(discordWebhook, {
-                    embeds: [{
-                            title: 'No Advisories in CTI Feed',
-                            color: 3447003,
-                            fields: [{ name: 'Repository', value: repoName, inline: true }],
-                            description: 'The CTI feed returned no advisories for the detected ecosystems. This may be transient — the feed will be checked again on the next run.',
-                            url: runUrl,
-                            timestamp: new Date().toISOString(),
-                            footer: { text: 'VulTool CTI Scanner' },
-                        }],
-                });
-            }
+            if (discordWebhook)
+                await sendDiscordNotification(discordWebhook, discordNoAdvisories(repoName));
             return;
         }
         // Advisory skip check — bypassed in demo mode so every run exercises the full pipeline
@@ -44017,9 +44058,8 @@ async function main() {
             core.info('');
             core.info('  Dependency Mapper failed — verify the GitHub Dependency Graph is enabled.');
             core.info(HEAVY);
-            if (discordWebhook) {
-                await sendDiscordNotification(discordWebhook, buildDiscordErrorPayload(repoName, 'Dependency Mapper failed — GitHub SBOM API timed out or is unavailable. Verify the Dependency Graph is enabled in repository settings.'));
-            }
+            if (discordWebhook)
+                await sendDiscordNotification(discordWebhook, discordDependencyMapperFailed(repoName));
             return;
         }
         core.info(`  [C3] Dependency Mapper      → ${installedPackages.size} packages mapped`);
@@ -44035,6 +44075,8 @@ async function main() {
             core.info('  No matching vulnerabilities found in this repository.');
             await saveSeenGhsaIds(currentIds);
             core.info(HEAVY);
+            if (discordWebhook)
+                await sendDiscordNotification(discordWebhook, discordNoThreats(repoName, rawAdvisories.length, skippedCount));
             return;
         }
         // --- C5: DEPLOYMENT CLASSIFIER ---
@@ -44489,7 +44531,15 @@ async function main() {
             core.warning(`Failed to write run result: ${err instanceof Error ? err.message : String(err)}`);
         }
         if (discordWebhook) {
-            await sendDiscordNotification(discordWebhook, buildDiscordPayload(repoName, sortedThreats, exploitContexts, llmReports, verdicts));
+            if (rescanMode) {
+                const patchVerdict = notExploitable > 0 ? 'PATCH_CONFIRMED'
+                    : exploitable > 0 ? 'PATCH_FAILED' : 'PATCH_INCONCLUSIVE';
+                const pkgName = exploitContexts[0]?.threat.packageName ?? rescanGhsaId ?? '';
+                await sendDiscordNotification(discordWebhook, discordRescanComplete(repoName, rescanGhsaId ?? '', patchVerdict, pkgName));
+            }
+            else {
+                await sendDiscordNotification(discordWebhook, discordAnalysisComplete(repoName, sortedThreats, exploitContexts, llmReports, fixBranches, verificationResults));
+            }
         }
     }
     catch (error) {
@@ -44498,7 +44548,7 @@ async function main() {
             const discordWebhook = core.getInput('discord_webhook_url');
             if (discordWebhook) {
                 const repoName = process.env.GITHUB_REPOSITORY ?? 'unknown/unknown';
-                await sendDiscordNotification(discordWebhook, buildDiscordErrorPayload(repoName, error.message));
+                await sendDiscordNotification(discordWebhook, discordPipelineError(repoName, error.message));
             }
         }
     }
