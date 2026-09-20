@@ -31,8 +31,6 @@ async function fetchFeedAdvisories(
       continue;
     }
 
-    core.info(`Fetching latest 25 advisories for ecosystem: ${graphqlEnum}...`);
-
     const query = `
       query($ecosystem: SecurityAdvisoryEcosystem) {
         securityVulnerabilities(first: 25, ecosystem: $ecosystem, orderBy: {field: UPDATED_AT, direction: DESC}) {
@@ -56,15 +54,6 @@ async function fetchFeedAdvisories(
     const response: any = await octokit.graphql(query, { ecosystem: graphqlEnum });
     const nodes = response.securityVulnerabilities.nodes as any[];
 
-    core.info(`Pulled ${nodes.length} advisories from the CTI feed for ${graphqlEnum}.`);
-
-    nodes.forEach((v: any, i: number) => {
-      const cwes    = (v.advisory.cwes?.nodes ?? []) as Array<{ cweId: string }>;
-      const cweStr  = cwes.length > 0 ? cwes.map(c => c.cweId).join(', ') : 'no CWE';
-      const cvssStr = v.advisory.cvss ? `CVSS ${(v.advisory.cvss.score as number).toFixed(1)}` : 'no CVSS';
-      core.info(`  [${i + 1}] ${v.package.name} ${v.vulnerableVersionRange} — ${v.advisory.summary} (${v.severity}) [${cweStr}] [${cvssStr}]`);
-    });
-
     results.push(...nodes.map((v: any): Advisory => ({
       ghsaId:                 v.advisory.ghsaId,
       summary:                v.advisory.summary,
@@ -84,8 +73,6 @@ async function fetchFeedAdvisories(
 
 // ─── Watched Advisories ───────────────────────────────────────────────────────
 
-// Fetches specific advisories by GHSA ID — used for packages the team knows
-// are in their stack and wants checked on every run regardless of feed position.
 async function fetchWatchedAdvisories(
   octokit: ReturnType<typeof github.getOctokit>,
   ghsaIds: string[],

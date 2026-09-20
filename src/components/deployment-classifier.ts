@@ -1,13 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { Advisory, Threat } from '../types';
-
-const SEVERITY_WEIGHTS: Record<string, number> = {
-  'LOW':      1,
-  'MODERATE': 2,
-  'HIGH':     3,
-  'CRITICAL': 4,
-};
+import { Advisory, Threat, SEVERITY_WEIGHTS } from '../types';
 
 // Failures are isolated — one broken manifest does not block the others.
 

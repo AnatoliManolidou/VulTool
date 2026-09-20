@@ -32,6 +32,10 @@ export interface Advisory {
   ecosystem:              Ecosystem;
 }
 
+export const SEVERITY_WEIGHTS: Record<string, number> = {
+  'LOW': 1, 'MODERATE': 2, 'HIGH': 3, 'CRITICAL': 4,
+};
+
 // Advisory enriched with deployment context and priority score (Component 5 output)
 export interface Threat extends Advisory {
   contextualRisk:  string;

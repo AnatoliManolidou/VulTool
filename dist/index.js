@@ -41109,7 +41109,6 @@ async function fetchFeedAdvisories(octokit, ecosystems) {
             core.warning(`Unknown ecosystem for GraphQL: ${eco}`);
             continue;
         }
-        core.info(`Fetching latest 25 advisories for ecosystem: ${graphqlEnum}...`);
         const query = `
       query($ecosystem: SecurityAdvisoryEcosystem) {
         securityVulnerabilities(first: 25, ecosystem: $ecosystem, orderBy: {field: UPDATED_AT, direction: DESC}) {
@@ -41131,13 +41130,6 @@ async function fetchFeedAdvisories(octokit, ecosystems) {
     `;
         const response = await octokit.graphql(query, { ecosystem: graphqlEnum });
         const nodes = response.securityVulnerabilities.nodes;
-        core.info(`Pulled ${nodes.length} advisories from the CTI feed for ${graphqlEnum}.`);
-        nodes.forEach((v, i) => {
-            const cwes = (v.advisory.cwes?.nodes ?? []);
-            const cweStr = cwes.length > 0 ? cwes.map(c => c.cweId).join(', ') : 'no CWE';
-            const cvssStr = v.advisory.cvss ? `CVSS ${v.advisory.cvss.score.toFixed(1)}` : 'no CVSS';
-            core.info(`  [${i + 1}] ${v.package.name} ${v.vulnerableVersionRange} — ${v.advisory.summary} (${v.severity}) [${cweStr}] [${cvssStr}]`);
-        });
         results.push(...nodes.map((v) => ({
             ghsaId: v.advisory.ghsaId,
             summary: v.advisory.summary,
@@ -41154,8 +41146,6 @@ async function fetchFeedAdvisories(octokit, ecosystems) {
     return results;
 }
 // ─── Watched Advisories ───────────────────────────────────────────────────────
-// Fetches specific advisories by GHSA ID — used for packages the team knows
-// are in their stack and wants checked on every run regardless of feed position.
 async function fetchWatchedAdvisories(octokit, ghsaIds) {
     if (ghsaIds.length === 0)
         return [];
@@ -41915,12 +41905,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.classifyDeploymentContext = classifyDeploymentContext;
 const fs = __importStar(__nccwpck_require__(79896));
 const path = __importStar(__nccwpck_require__(16928));
-const SEVERITY_WEIGHTS = {
-    'LOW': 1,
-    'MODERATE': 2,
-    'HIGH': 3,
-    'CRITICAL': 4,
-};
+const types_1 = __nccwpck_require__(16141);
 // Failures are isolated — one broken manifest does not block the others.
 function extractNpmDevDeps(workspacePath, devDeps) {
     const pkgPath = path.join(workspacePath, 'package.json');
@@ -42196,7 +42181,7 @@ function classifyDeploymentContext(advisories, workspacePath, ecosystems) {
             ? 'REDUCED RISK (Dev Environment)'
             : 'HIGH RISK (Production Environment)';
         // Severity is the primary sort key; prod/dev is the tiebreaker within the same severity
-        const severityWeight = SEVERITY_WEIGHTS[advisory.severity?.toUpperCase()] || 0;
+        const severityWeight = types_1.SEVERITY_WEIGHTS[advisory.severity?.toUpperCase()] || 0;
         const priorityScore = severityWeight * 10 + (isDev ? 0 : 5);
         return {
             ...advisory,
@@ -43619,11 +43604,9 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.filterAdvisories = filterAdvisories;
 const core = __importStar(__nccwpck_require__(37484));
 const semver_1 = __nccwpck_require__(62088);
+const types_1 = __nccwpck_require__(16141);
 function filterAdvisories(advisories, thresholdInput, installedPackages) {
-    const severityWeights = {
-        'LOW': 1, 'MODERATE': 2, 'HIGH': 3, 'CRITICAL': 4,
-    };
-    const targetWeight = severityWeights[thresholdInput.toUpperCase()] ?? 0;
+    const targetWeight = types_1.SEVERITY_WEIGHTS[thresholdInput.toUpperCase()] ?? 0;
     if (installedPackages.size === 0) {
         core.warning('Installed package list is empty — all above-threshold advisories will be reported. ' +
             'Verify the GitHub Dependency Graph is enabled for this repository.');
@@ -43631,7 +43614,7 @@ function filterAdvisories(advisories, thresholdInput, installedPackages) {
     const versionSkips = [];
     const confirmed = advisories.filter(adv => {
         const packageName = adv.packageName?.toLowerCase() ?? '';
-        const advWeight = severityWeights[adv.severity?.toUpperCase()] ?? 0;
+        const advWeight = types_1.SEVERITY_WEIGHTS[adv.severity?.toUpperCase()] ?? 0;
         if (advWeight < targetWeight)
             return false;
         if (installedPackages.size > 0 && !installedPackages.has(packageName))
@@ -44554,6 +44537,20 @@ async function main() {
     }
 }
 main();
+
+
+/***/ }),
+
+/***/ 16141:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.SEVERITY_WEIGHTS = void 0;
+exports.SEVERITY_WEIGHTS = {
+    'LOW': 1, 'MODERATE': 2, 'HIGH': 3, 'CRITICAL': 4,
+};
 
 
 /***/ }),
