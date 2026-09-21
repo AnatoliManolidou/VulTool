@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import Parser from 'web-tree-sitter';
 import { CallChainStep, EntryPoint } from './types';
-import { CodeSlice } from '../ast-analyzer';
+import { CodeSlice, findSourceFiles } from '../ast-analyzer';
 
 const MAX_DEPTH = 8;
 
@@ -16,30 +16,6 @@ async function initParser(): Promise<void> {
   await Parser.init({ locateFile: (f: string) => path.join(__dirname, f) });
   parser = new Parser();
   jsLanguage = await Parser.Language.load(path.join(__dirname, 'tree-sitter-javascript.wasm'));
-}
-
-// ─── File Scanner ─────────────────────────────────────────────────────────────
-
-const SOURCE_EXTENSIONS = new Set(['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs']);
-const EXCLUDED_DIRS = new Set([
-  'node_modules', '.git', 'dist', 'build', 'out', 'coverage', '.next', '.nuxt', '.cache',
-]);
-
-function findSourceFiles(workspacePath: string): string[] {
-  const results: string[] = [];
-  function walk(dir: string): void {
-    let entries: fs.Dirent[];
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-    for (const entry of entries) {
-      if (entry.isDirectory() && !EXCLUDED_DIRS.has(entry.name)) {
-        walk(path.join(dir, entry.name));
-      } else if (entry.isFile() && SOURCE_EXTENSIONS.has(path.extname(entry.name))) {
-        results.push(path.join(dir, entry.name));
-      }
-    }
-  }
-  walk(workspacePath);
-  return results;
 }
 
 // ─── Function Definition Locator ─────────────────────────────────────────────

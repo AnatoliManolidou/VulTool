@@ -42340,6 +42340,7 @@ exports.buildCallChain = buildCallChain;
 const fs = __importStar(__nccwpck_require__(79896));
 const path = __importStar(__nccwpck_require__(16928));
 const web_tree_sitter_1 = __importDefault(__nccwpck_require__(50171));
+const ast_analyzer_1 = __nccwpck_require__(19999);
 const MAX_DEPTH = 8;
 // ─── Parser ───────────────────────────────────────────────────────────────────
 let parser = null;
@@ -42350,33 +42351,6 @@ async function initParser() {
     await web_tree_sitter_1.default.init({ locateFile: (f) => path.join(__dirname, f) });
     parser = new web_tree_sitter_1.default();
     jsLanguage = await web_tree_sitter_1.default.Language.load(path.join(__dirname, 'tree-sitter-javascript.wasm'));
-}
-// ─── File Scanner ─────────────────────────────────────────────────────────────
-const SOURCE_EXTENSIONS = new Set(['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs']);
-const EXCLUDED_DIRS = new Set([
-    'node_modules', '.git', 'dist', 'build', 'out', 'coverage', '.next', '.nuxt', '.cache',
-]);
-function findSourceFiles(workspacePath) {
-    const results = [];
-    function walk(dir) {
-        let entries;
-        try {
-            entries = fs.readdirSync(dir, { withFileTypes: true });
-        }
-        catch {
-            return;
-        }
-        for (const entry of entries) {
-            if (entry.isDirectory() && !EXCLUDED_DIRS.has(entry.name)) {
-                walk(path.join(dir, entry.name));
-            }
-            else if (entry.isFile() && SOURCE_EXTENSIONS.has(path.extname(entry.name))) {
-                results.push(path.join(dir, entry.name));
-            }
-        }
-    }
-    walk(workspacePath);
-    return results;
 }
 // Searches all source files for the first definition of a function with the given name.
 // Covers: function declarations, arrow functions, and function expressions assigned to variables.
@@ -42444,7 +42418,7 @@ async function buildCallChain(entryPoint, codeSlice, workspacePath) {
     // Direct case: the entry point handler itself is one of the EIF callers.
     if (callerNames.has(entryPoint.handlerFunction))
         return [];
-    const files = findSourceFiles(workspacePath);
+    const files = (0, ast_analyzer_1.findSourceFiles)(workspacePath);
     // parent_map tracks how we reached each function — used to reconstruct the path.
     const parentMap = new Map();
     const defCache = new Map();
@@ -43197,7 +43171,7 @@ async function callLLM(apiKey, prompt) {
                 lastErr = new Error(`OpenRouter error ${response.status}: ${text}`);
                 if (response.status === 429 || response.status >= 500)
                     continue;
-                throw lastErr;
+                break; // non-retryable (4xx) — exit loop and throw below
             }
             const data = await response.json();
             const content = data.choices?.[0]?.message?.content;

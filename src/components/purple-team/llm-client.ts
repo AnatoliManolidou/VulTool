@@ -35,7 +35,7 @@ export async function callLLM(apiKey: string, prompt: string): Promise<string> {
         const text = await response.text();
         lastErr = new Error(`OpenRouter error ${response.status}: ${text}`);
         if (response.status === 429 || response.status >= 500) continue;
-        throw lastErr;
+        break; // non-retryable (4xx) — exit loop and throw below
       }
 
       const data    = await response.json() as any;
