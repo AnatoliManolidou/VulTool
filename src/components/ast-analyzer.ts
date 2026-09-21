@@ -48,13 +48,13 @@ async function initParser(): Promise<void> {
   );
 }
 
-const SOURCE_EXTENSIONS = new Set(['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs']);
-const EXCLUDED_DIRS = new Set([
+export const SOURCE_EXTENSIONS = new Set(['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs']);
+export const EXCLUDED_DIRS = new Set([
   'node_modules', '.git', 'dist', 'build', 'out',
   'coverage', '.next', '.nuxt', '.cache', '__pycache__',
 ]);
 
-function findSourceFiles(workspacePath: string): string[] {
+export function findSourceFiles(workspacePath: string): string[] {
   const results: string[] = [];
   function walk(dir: string): void {
     let entries: fs.Dirent[];

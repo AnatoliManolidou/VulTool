@@ -7,12 +7,12 @@ import { CodeSlice } from '../ast-analyzer';
 // and naming conventions — not exhaustive but covers the dominant patterns in
 // npm web apps (Express, Fastify, Koa, NestJS).
 const GUARD_PATTERNS: Record<GuardType, RegExp> = {
-  'authentication': /passport\.authenticate|jwt\.verify|jsonwebtoken\.verify|req\.isAuthenticated\s*\(\)|verifyToken|authenticateJWT|requireAuth|@UseGuards.*AuthGuard/i,
-  'authorization':  /req\.user\.role|hasPermission|checkRole|hasRole|authorize\s*\(|@Roles\s*\(/i,
-  'input-validation': /Joi\s*\.|validationResult\s*\(|z\s*\.\s*(parse|safeParse)|\.safeParse\s*\(|yup\s*\.|check\s*\(['"]\w|sanitize/i,
-  'rate-limiting':  /rateLimit|rateLimiter|rate[_-]limit|limiter\.consume|checkRateLimit/i,
-  'size-limit':     /limits\s*:\s*\{|fileSize|maxFileSize|bodyLimit/i,
-  'content-type':   /content[_-]?[Tt]ype|mimetype|fileFilter/i,
+  'authentication': /passport\.authenticate|jwt\.verify|jsonwebtoken\.verify|req\.isAuthenticated\s*\(\)|verifyToken|authenticateJWT|requireAuth|@UseGuards.*AuthGuard/gi,
+  'authorization':  /req\.user\.role|hasPermission|checkRole|hasRole|authorize\s*\(|@Roles\s*\(/gi,
+  'input-validation': /Joi\s*\.|validationResult\s*\(|z\s*\.\s*(parse|safeParse)|\.safeParse\s*\(|yup\s*\.|check\s*\(['"]\w|sanitize/gi,
+  'rate-limiting':  /rateLimit|rateLimiter|rate[_-]limit|limiter\.consume|checkRateLimit/gi,
+  'size-limit':     /limits\s*:\s*\{|fileSize|maxFileSize|bodyLimit/gi,
+  'content-type':   /content[_-]?[Tt]ype|mimetype|fileFilter/gi,
 };
 
 // ─── Snippet Extractor ────────────────────────────────────────────────────────
@@ -36,10 +36,10 @@ function scanSource(source: string, file: string, lineOffset: number): DetectedG
   const guards: DetectedGuard[] = [];
 
   for (const [type, pattern] of Object.entries(GUARD_PATTERNS) as [GuardType, RegExp][]) {
-    const match = pattern.exec(source);
-    if (!match) continue;
-    const { code, line } = extractSnippet(source, match.index);
-    guards.push({ type, code, file, line: line + lineOffset });
+    for (const match of source.matchAll(pattern)) {
+      const { code, line } = extractSnippet(source, match.index!);
+      guards.push({ type, code, file, line: line + lineOffset });
+    }
   }
 
   return guards;

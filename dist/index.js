@@ -41306,6 +41306,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.EXCLUDED_DIRS = exports.SOURCE_EXTENSIONS = void 0;
+exports.findSourceFiles = findSourceFiles;
 exports.analyzeCodeUsage = analyzeCodeUsage;
 const fs = __importStar(__nccwpck_require__(79896));
 const path = __importStar(__nccwpck_require__(16928));
@@ -41326,8 +41328,8 @@ async function initParser() {
     parser = new web_tree_sitter_1.default();
     jsLanguage = await web_tree_sitter_1.default.Language.load(path.join(__dirname, 'tree-sitter-javascript.wasm'));
 }
-const SOURCE_EXTENSIONS = new Set(['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs']);
-const EXCLUDED_DIRS = new Set([
+exports.SOURCE_EXTENSIONS = new Set(['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs']);
+exports.EXCLUDED_DIRS = new Set([
     'node_modules', '.git', 'dist', 'build', 'out',
     'coverage', '.next', '.nuxt', '.cache', '__pycache__',
 ]);
@@ -41343,10 +41345,10 @@ function findSourceFiles(workspacePath) {
         }
         for (const entry of entries) {
             if (entry.isDirectory()) {
-                if (!EXCLUDED_DIRS.has(entry.name))
+                if (!exports.EXCLUDED_DIRS.has(entry.name))
                     walk(path.join(dir, entry.name));
             }
-            else if (entry.isFile() && SOURCE_EXTENSIONS.has(path.extname(entry.name))) {
+            else if (entry.isFile() && exports.SOURCE_EXTENSIONS.has(path.extname(entry.name))) {
                 results.push(path.join(dir, entry.name));
             }
         }
@@ -42655,6 +42657,7 @@ exports.detectEntryPoint = detectEntryPoint;
 const fs = __importStar(__nccwpck_require__(79896));
 const path = __importStar(__nccwpck_require__(16928));
 const web_tree_sitter_1 = __importDefault(__nccwpck_require__(50171));
+const ast_analyzer_1 = __nccwpck_require__(19999);
 // ─── Parser ───────────────────────────────────────────────────────────────────
 let parser = null;
 let jsLanguage = null;
@@ -42919,34 +42922,6 @@ function findCronEntryPoint(callerNames, files) {
     }
     return null;
 }
-// ─── File Scanner ─────────────────────────────────────────────────────────────
-const SOURCE_EXTENSIONS = new Set(['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs']);
-const EXCLUDED_DIRS = new Set([
-    'node_modules', '.git', 'dist', 'build', 'out',
-    'coverage', '.next', '.nuxt', '.cache', '__pycache__',
-]);
-function findSourceFiles(workspacePath) {
-    const results = [];
-    function walk(dir) {
-        let entries;
-        try {
-            entries = fs.readdirSync(dir, { withFileTypes: true });
-        }
-        catch {
-            return;
-        }
-        for (const entry of entries) {
-            if (entry.isDirectory() && !EXCLUDED_DIRS.has(entry.name)) {
-                walk(path.join(dir, entry.name));
-            }
-            else if (entry.isFile() && SOURCE_EXTENSIONS.has(path.extname(entry.name))) {
-                results.push(path.join(dir, entry.name));
-            }
-        }
-    }
-    walk(workspacePath);
-    return results;
-}
 // ─── Upstream Caller Discovery ────────────────────────────────────────────────
 // Single-pass: returns function names whose body directly calls any name in `targets`.
 function findDirectParents(targets, files) {
@@ -43023,7 +42998,7 @@ async function detectEntryPoint(callerSlices, workspacePath) {
     const httpFramework = resolveHttpFramework(deps);
     const wsFramework = resolveWsFramework(deps);
     const queueFw = resolveQueueFramework(deps);
-    const files = findSourceFiles(workspacePath);
+    const files = (0, ast_analyzer_1.findSourceFiles)(workspacePath);
     // Expand the search set with functions that call our EIF callers directly —
     // covers the route → service → EIF caller indirection pattern.
     const parentCallers = findParentCallers(callerNames, files);
@@ -43117,12 +43092,12 @@ exports.detectGuards = detectGuards;
 // and naming conventions — not exhaustive but covers the dominant patterns in
 // npm web apps (Express, Fastify, Koa, NestJS).
 const GUARD_PATTERNS = {
-    'authentication': /passport\.authenticate|jwt\.verify|jsonwebtoken\.verify|req\.isAuthenticated\s*\(\)|verifyToken|authenticateJWT|requireAuth|@UseGuards.*AuthGuard/i,
-    'authorization': /req\.user\.role|hasPermission|checkRole|hasRole|authorize\s*\(|@Roles\s*\(/i,
-    'input-validation': /Joi\s*\.|validationResult\s*\(|z\s*\.\s*(parse|safeParse)|\.safeParse\s*\(|yup\s*\.|check\s*\(['"]\w|sanitize/i,
-    'rate-limiting': /rateLimit|rateLimiter|rate[_-]limit|limiter\.consume|checkRateLimit/i,
-    'size-limit': /limits\s*:\s*\{|fileSize|maxFileSize|bodyLimit/i,
-    'content-type': /content[_-]?[Tt]ype|mimetype|fileFilter/i,
+    'authentication': /passport\.authenticate|jwt\.verify|jsonwebtoken\.verify|req\.isAuthenticated\s*\(\)|verifyToken|authenticateJWT|requireAuth|@UseGuards.*AuthGuard/gi,
+    'authorization': /req\.user\.role|hasPermission|checkRole|hasRole|authorize\s*\(|@Roles\s*\(/gi,
+    'input-validation': /Joi\s*\.|validationResult\s*\(|z\s*\.\s*(parse|safeParse)|\.safeParse\s*\(|yup\s*\.|check\s*\(['"]\w|sanitize/gi,
+    'rate-limiting': /rateLimit|rateLimiter|rate[_-]limit|limiter\.consume|checkRateLimit/gi,
+    'size-limit': /limits\s*:\s*\{|fileSize|maxFileSize|bodyLimit/gi,
+    'content-type': /content[_-]?[Tt]ype|mimetype|fileFilter/gi,
 };
 // ─── Snippet Extractor ────────────────────────────────────────────────────────
 // Given a source string and the character index of a regex match, returns
@@ -43141,11 +43116,10 @@ function extractSnippet(source, matchIndex) {
 function scanSource(source, file, lineOffset) {
     const guards = [];
     for (const [type, pattern] of Object.entries(GUARD_PATTERNS)) {
-        const match = pattern.exec(source);
-        if (!match)
-            continue;
-        const { code, line } = extractSnippet(source, match.index);
-        guards.push({ type, code, file, line: line + lineOffset });
+        for (const match of source.matchAll(pattern)) {
+            const { code, line } = extractSnippet(source, match.index);
+            guards.push({ type, code, file, line: line + lineOffset });
+        }
     }
     return guards;
 }

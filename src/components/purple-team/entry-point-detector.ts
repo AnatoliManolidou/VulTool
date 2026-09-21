@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import Parser from 'web-tree-sitter';
 import { EntryPoint } from './types';
-import { CallerSlice } from '../ast-analyzer';
+import { CallerSlice, SOURCE_EXTENSIONS, EXCLUDED_DIRS, findSourceFiles } from '../ast-analyzer';
 
 // ─── Parser ───────────────────────────────────────────────────────────────────
 
@@ -285,31 +285,6 @@ function findCronEntryPoint(
     };
   }
   return null;
-}
-
-// ─── File Scanner ─────────────────────────────────────────────────────────────
-
-const SOURCE_EXTENSIONS = new Set(['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs']);
-const EXCLUDED_DIRS = new Set([
-  'node_modules', '.git', 'dist', 'build', 'out',
-  'coverage', '.next', '.nuxt', '.cache', '__pycache__',
-]);
-
-function findSourceFiles(workspacePath: string): string[] {
-  const results: string[] = [];
-  function walk(dir: string): void {
-    let entries: fs.Dirent[];
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-    for (const entry of entries) {
-      if (entry.isDirectory() && !EXCLUDED_DIRS.has(entry.name)) {
-        walk(path.join(dir, entry.name));
-      } else if (entry.isFile() && SOURCE_EXTENSIONS.has(path.extname(entry.name))) {
-        results.push(path.join(dir, entry.name));
-      }
-    }
-  }
-  walk(workspacePath);
-  return results;
 }
 
 // ─── Upstream Caller Discovery ────────────────────────────────────────────────
