@@ -79,7 +79,7 @@ Propose a minimal code-level fix for the application code above that mitigates t
 Produce your response with exactly these sections:
 
 ## Fixed Code
-The complete corrected version of each modified function. Preserve the original function signatures and file structure.
+The complete corrected version of each function you modified. Include ONLY functions that you actually changed — do not output functions that are identical to the original. Preserve the original function signatures.
 
 ## What Changed
 A concise bullet list: what was added or modified, and why each change mitigates the vulnerability.
@@ -136,7 +136,7 @@ TASK
 Propose an improved fix that addresses the specific weakness above.
 
 ## Fixed Code
-The complete corrected version of each modified function.
+The complete corrected version of each function you modified. Include ONLY functions that you actually changed — do not output functions that are identical to the original.
 
 ## What Changed
 A concise bullet list of what was improved over the previous fix and why.
