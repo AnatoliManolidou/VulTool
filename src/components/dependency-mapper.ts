@@ -115,9 +115,7 @@ export async function getRepositoryDependencies(
     // Merge local lockfile — covers npm packages on the current branch that the
     // SBOM hasn't indexed yet (SBOM always reflects the default branch).
     const localPackages = parseLocalNpmPackages(workspacePath);
-    let localOnly = 0;
     for (const [name, version] of localPackages) {
-      if (!installedPackages.has(name)) localOnly++;
       installedPackages.set(name, version);
     }
 
