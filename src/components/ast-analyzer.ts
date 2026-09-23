@@ -186,7 +186,8 @@ function findEIFNodes(tree: Parser.Tree, bindings: Set<string>): Parser.SyntaxNo
 
 const FUNCTION_NODE_TYPES = new Set([
   'function_declaration',
-  'function_expression',
+  'function_expression', // retained for grammar compatibility; tree-sitter-javascript uses 'function'
+  'function',            // tree-sitter-javascript node type for all function expressions
   'arrow_function',
   'method_definition',
   'generator_function_declaration',

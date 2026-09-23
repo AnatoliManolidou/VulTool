@@ -50,7 +50,7 @@ function findFunctionDef(name: string, files: string[]): FunctionDef | null {
       const id    = node.childForFieldName('name');
       const value = node.childForFieldName('value');
       if (id?.text !== name || !value) continue;
-      if (value.type !== 'arrow_function' && value.type !== 'function_expression') continue;
+      if (value.type !== 'arrow_function' && value.type !== 'function_expression' && value.type !== 'function') continue;
       return { file, startLine: value.startPosition.row + 1, endLine: value.endPosition.row + 1, sourceText: value.text };
     }
   }
