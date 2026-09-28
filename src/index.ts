@@ -1,5 +1,4 @@
 import * as core from '@actions/core';
-import * as cache from '@actions/cache';
 import * as github from '@actions/github';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -23,26 +22,31 @@ import { callLLM } from './components/purple-team/llm-client';
 import { ExploitContext } from './components/purple-team/types';
 import { Advisory, Threat } from './types';
 
-const STATE_FILE = '/tmp/vultool-advisory-state.json';
-const CACHE_KEY  = `vultool-advisory-state-${process.env.GITHUB_REPOSITORY ?? 'local'}`;
+const VULTOOL_VAR = 'VULTOOL_SEEN_GHSA_IDS';
 
-async function loadLastSeenGhsaIds(): Promise<Set<string>> {
+async function loadLastSeenGhsaIds(token: string): Promise<Set<string>> {
   try {
-    await cache.restoreCache([STATE_FILE], CACHE_KEY);
-    if (fs.existsSync(STATE_FILE)) {
-      const stored = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-      return new Set<string>(stored.ghsaIds ?? []);
-    }
-  } catch { /* first run or cache miss — treat as empty */ }
-  return new Set<string>();
+    const octokit = github.getOctokit(token);
+    const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
+    const { data } = await octokit.rest.actions.getRepoVariable({ owner, repo, name: VULTOOL_VAR });
+    return new Set<string>(data.value.split(',').filter(Boolean));
+  } catch {
+    return new Set<string>();
+  }
 }
 
-async function saveSeenGhsaIds(ids: Set<string>): Promise<void> {
+async function saveSeenGhsaIds(token: string, ids: Set<string>): Promise<void> {
   try {
-    fs.writeFileSync(STATE_FILE, JSON.stringify({ ghsaIds: [...ids] }));
-    await cache.saveCache([STATE_FILE], CACHE_KEY);
+    const octokit = github.getOctokit(token);
+    const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
+    const value = [...ids].join(',');
+    try {
+      await octokit.rest.actions.updateRepoVariable({ owner, repo, name: VULTOOL_VAR, value });
+    } catch {
+      await octokit.rest.actions.createRepoVariable({ owner, repo, name: VULTOOL_VAR, value });
+    }
   } catch (err) {
-    core.warning(`Could not save advisory state to cache: ${err instanceof Error ? err.message : String(err)}`);
+    core.warning(`Could not save advisory state: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -410,7 +414,7 @@ async function main() {
     }
 
     // Advisory skip check — bypassed in demo mode so every run exercises the full pipeline
-    const lastSeenIds = await loadLastSeenGhsaIds();
+    const lastSeenIds = await loadLastSeenGhsaIds(token);
     const currentIds  = new Set<string>(rawAdvisories.map(a => a.ghsaId));
     const newIds      = [...currentIds].filter(id => !lastSeenIds.has(id));
     if (!demoMode && lastSeenIds.size > 0 && newIds.length === 0) {
@@ -445,7 +449,7 @@ async function main() {
     if (confirmedAdvisories.length === 0) {
       core.info('');
       core.info('  No matching vulnerabilities found in this repository.');
-      await saveSeenGhsaIds(currentIds);
+      await saveSeenGhsaIds(token, currentIds);
       core.info(HEAVY);
       if (discordWebhook) await sendDiscordNotification(discordWebhook, discordNoThreats(repoName, rawAdvisories.length, skippedCount));
       return;
@@ -490,7 +494,7 @@ async function main() {
         exploitContexts.push(assembleContext(threat, slice, entryPoint, callChain, guards));
       }
     }
-    core.info(`  [C8] Purple Team            → ${exploitContexts.length > 0 ? `${exploitContexts.length} exploit context(s) assembled` : 'skipped — no confirmed code usage'}`);
+    core.info(`  [C8] Purple Team            → ${exploitContexts.length > 0 ? `${exploitContexts.length} exploit context(s) assembled` : 'skipped — no package imports found in source'}`);
 
     // --- C9: LLM EXPLOIT ANALYZER ---
     const llmReports = new Map<string, string>();
@@ -674,7 +678,7 @@ async function main() {
       }
     }
 
-    await saveSeenGhsaIds(currentIds);
+    await saveSeenGhsaIds(token, currentIds);
 
     // ── THREAT QUEUE ──────────────────────────────────────────────────────────
     core.info('');
@@ -702,7 +706,7 @@ async function main() {
         core.info(`       ${pathLabel}`);
         core.info(`       Guards     : ${guardStr}`);
       } else {
-        core.info(`       Code usage : not confirmed — static risk only`);
+        core.info(`       Code usage : not found in source — static risk only`);
       }
 
       core.info('');
@@ -882,7 +886,9 @@ async function main() {
       core.info(`  ${parts.join('  |  ')}`);
       core.info('');
       for (const t of sortedThreats) {
-        const verdict   = parseVerdict(llmReports.get(t.ghsaId) ?? '') ?? '—';
+        const hasCodeUsage = codeSlices.some(s => s.threatGhsaId === t.ghsaId);
+        const verdict      = parseVerdict(llmReports.get(t.ghsaId) ?? '')
+                           ?? (hasCodeUsage ? 'not analyzed' : 'no code usage');
         const branch    = fixBranches.get(t.ghsaId);
         const rescanned = rescanTriggered.has(t.ghsaId);
         const fixStatus = branch && rescanned ? `fix: ${branch} (rescan triggered)`
