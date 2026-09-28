@@ -189,8 +189,8 @@ function discordAnalysisComplete(
   }
 
   const fields: object[] = [
-    { name: 'Repository',       value: repoName,                      inline: true },
-    { name: 'Threats confirmed', value: String(sortedThreats.length),  inline: true },
+    { name: 'Repository',        value: repoName,                      inline: true },
+    { name: 'Packages affected', value: String(sortedThreats.length),  inline: true },
   ];
 
   if (verdicts.length > 0) {
@@ -375,7 +375,14 @@ async function main() {
       core.info(`  ${repoName}  |  Advisory: ${rescanGhsaId ?? 'unknown'}`);
     } else {
       core.info('  CTI VULNERABILITY SCANNER');
-      core.info(`  ${repoName}  |  Threshold: ${threshold}${demoMode ? '  |  Demo Mode' : ''}`);
+      core.info(`  ${repoName}`);
+      const configParts: string[] = [
+        `Threshold: ${threshold}`,
+        `Adjacent risks: ${includeAdjacentRisks ? 'on' : 'off'}`,
+        `Create issue: ${createIssue ? 'on' : 'off'}`,
+      ];
+      if (demoMode) configParts.push('Demo mode');
+      core.info(`  ${configParts.join('  |  ')}`);
     }
     core.info(HEAVY);
     core.info('');
@@ -433,7 +440,7 @@ async function main() {
     const skippedCount = rawAdvisories.length - confirmedAdvisories.length;
     core.info(`  [C4] Vulnerability Filter   → ${confirmedAdvisories.length} confirmed  (${skippedCount} skipped)`);
     for (const s of versionSkips) {
-      core.info(`       ↳ ${s.packageName}@${s.installedVersion} — patched (not in range ${s.advisoryRange})`);
+      core.info(`       ↳ ${s.packageName}@${s.installedVersion} — not affected (installed version outside vulnerable range ${s.advisoryRange})`);
     }
     if (confirmedAdvisories.length === 0) {
       core.info('');
@@ -873,6 +880,16 @@ async function main() {
       if (adjacentRisks.length > 0) parts.push(`ADJACENT RISKS: ${adjacentRisks.length}`);
       if (fixBranches.size > 0)     parts.push(`FIX BRANCHES: ${fixBranches.size}`);
       core.info(`  ${parts.join('  |  ')}`);
+      core.info('');
+      for (const t of sortedThreats) {
+        const verdict   = parseVerdict(llmReports.get(t.ghsaId) ?? '') ?? '—';
+        const branch    = fixBranches.get(t.ghsaId);
+        const rescanned = rescanTriggered.has(t.ghsaId);
+        const fixStatus = branch && rescanned ? `fix: ${branch} (rescan triggered)`
+                        : branch              ? `fix: ${branch}`
+                        : '—';
+        core.info(`  ${t.packageName.padEnd(28)} ${verdict.padEnd(28)} ${fixStatus}`);
+      }
     }
     core.info(HEAVY);
 
