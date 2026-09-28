@@ -41479,7 +41479,8 @@ function findEIFNodes(tree, bindings) {
 }
 const FUNCTION_NODE_TYPES = new Set([
     'function_declaration',
-    'function_expression',
+    'function_expression', // retained for grammar compatibility; tree-sitter-javascript uses 'function'
+    'function', // tree-sitter-javascript node type for all function expressions
     'arrow_function',
     'method_definition',
     'generator_function_declaration',
@@ -42376,7 +42377,7 @@ function findFunctionDef(name, files) {
             const value = node.childForFieldName('value');
             if (id?.text !== name || !value)
                 continue;
-            if (value.type !== 'arrow_function' && value.type !== 'function_expression')
+            if (value.type !== 'arrow_function' && value.type !== 'function_expression' && value.type !== 'function')
                 continue;
             return { file, startLine: value.startPosition.row + 1, endLine: value.endPosition.row + 1, sourceText: value.text };
         }
@@ -43775,7 +43776,7 @@ function discordAnalysisComplete(repoName, sortedThreats, exploitContexts, llmRe
     }
     const fields = [
         { name: 'Repository', value: repoName, inline: true },
-        { name: 'Threats confirmed', value: String(sortedThreats.length), inline: true },
+        { name: 'Packages affected', value: String(sortedThreats.length), inline: true },
     ];
     if (verdicts.length > 0) {
         const parts = [];
@@ -43940,7 +43941,15 @@ async function main() {
         }
         else {
             core.info('  CTI VULNERABILITY SCANNER');
-            core.info(`  ${repoName}  |  Threshold: ${threshold}${demoMode ? '  |  Demo Mode' : ''}`);
+            core.info(`  ${repoName}`);
+            const configParts = [
+                `Threshold: ${threshold}`,
+                `Adjacent risks: ${includeAdjacentRisks ? 'on' : 'off'}`,
+                `Create issue: ${createIssue ? 'on' : 'off'}`,
+            ];
+            if (demoMode)
+                configParts.push('Demo mode');
+            core.info(`  ${configParts.join('  |  ')}`);
         }
         core.info(HEAVY);
         core.info('');
@@ -43996,7 +44005,7 @@ async function main() {
         const skippedCount = rawAdvisories.length - confirmedAdvisories.length;
         core.info(`  [C4] Vulnerability Filter   → ${confirmedAdvisories.length} confirmed  (${skippedCount} skipped)`);
         for (const s of versionSkips) {
-            core.info(`       ↳ ${s.packageName}@${s.installedVersion} — patched (not in range ${s.advisoryRange})`);
+            core.info(`       ↳ ${s.packageName}@${s.installedVersion} — not affected (installed version outside vulnerable range ${s.advisoryRange})`);
         }
         if (confirmedAdvisories.length === 0) {
             core.info('');
@@ -44421,6 +44430,16 @@ async function main() {
             if (fixBranches.size > 0)
                 parts.push(`FIX BRANCHES: ${fixBranches.size}`);
             core.info(`  ${parts.join('  |  ')}`);
+            core.info('');
+            for (const t of sortedThreats) {
+                const verdict = parseVerdict(llmReports.get(t.ghsaId) ?? '') ?? '—';
+                const branch = fixBranches.get(t.ghsaId);
+                const rescanned = rescanTriggered.has(t.ghsaId);
+                const fixStatus = branch && rescanned ? `fix: ${branch} (rescan triggered)`
+                    : branch ? `fix: ${branch}`
+                        : '—';
+                core.info(`  ${t.packageName.padEnd(28)} ${verdict.padEnd(28)} ${fixStatus}`);
+            }
         }
         core.info(HEAVY);
         // ── WRITE RUN RESULT ────────────────────────────────────────────────────────
