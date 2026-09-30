@@ -297,7 +297,7 @@ function discordRescanComplete(
     },
     PATCH_INCONCLUSIVE: {
       title:       'Patch Verification Inconclusive',
-      description: `The rescan ran but did not produce a definitive exploit verdict. Manual review of the fix branch is recommended.${issueRef}`,
+      description: `The rescan ran but did not produce a definitive exploit verdict. The verification pending issue has been updated — re-run the rescan to retry.`,
       color:       DC_ORANGE,
     },
   };
@@ -404,11 +404,16 @@ async function closePendingVerificationIssue(
     const { data: issues } = await octokit.rest.issues.listForRepo({ owner, repo, state: 'open', per_page: 100 });
     const pending = issues.find(i => i.title.includes(ghsaId) && i.title.includes('verification pending'));
     if (!pending) return;
+    if (verdict === 'PATCH_INCONCLUSIVE') {
+      await octokit.rest.issues.createComment({
+        owner, repo, issue_number: pending.number,
+        body: `Patch verification inconclusive. The rescan did not produce a definitive exploit verdict — the fix could not be confirmed or rejected. Re-run the rescan to retry.`,
+      });
+      return;
+    }
     const comment = verdict === 'PATCH_CONFIRMED'
       ? `Patch verified. Rescan confirmed the vulnerability is no longer reachable. A new issue has been opened with merge instructions.`
-      : verdict === 'PATCH_FAILED'
-      ? `Patch failed. Rescan found the vulnerability is still exploitable after the automated fix. A new issue has been opened with the rescan analysis and next steps.`
-      : `Patch verification inconclusive. The rescan did not produce a definitive verdict. Manual review of the fix branch is recommended.`;
+      : `Patch failed. Rescan found the vulnerability is still exploitable after the automated fix. A new issue has been opened with the rescan analysis and next steps.`;
     await octokit.rest.issues.createComment({ owner, repo, issue_number: pending.number, body: comment });
     await octokit.rest.issues.update({
       owner, repo,
