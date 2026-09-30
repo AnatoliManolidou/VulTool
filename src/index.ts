@@ -150,51 +150,65 @@ function discordAnalysisComplete(
   llmReports: Map<string, string>,
   fixBranches: Map<string, string>,
   verificationResults: Map<string, boolean>,
+  remediationTargets: ExploitContext[],
+  rescanTriggered: Set<string>,
 ): object {
   const verdicts       = [...llmReports.values()].map(parseVerdict).filter(Boolean) as string[];
   const exploitable    = verdicts.filter(v => v === 'EXPLOITABLE').length;
   const conditional    = verdicts.filter(v => v === 'CONDITIONALLY_EXPLOITABLE').length;
   const notExploitable = verdicts.filter(v => v === 'NOT_EXPLOITABLE').length;
   const refused        = verdicts.filter(v => v === 'REFUSED').length;
-  const hasVerifiedFix = [...fixBranches.keys()].some(id => verificationResults.get(id) === true);
+  const fixedCount     = fixBranches.size;
+  const failedCount    = remediationTargets.filter(ctx => !fixBranches.has(ctx.threat.ghsaId)).length;
 
   let title: string;
   let description: string;
   let color: number;
 
-  if (exploitable > 0 && hasVerifiedFix) {
+  if (exploitable > 0 && fixedCount > 0 && failedCount > 0) {
+    title       = 'Exploit Confirmed — Partial Remediation';
+    description = `${exploitable} exploitable threat(s) confirmed. ${fixedCount} automated fix(es) generated and verified — patch verification rescan triggered. ${failedCount} threat(s) could not be automatically remediated (LLM timeout) — a GitHub Issue has been opened for each finding.`;
+    color       = DC_ORANGE;
+  } else if (exploitable > 0 && fixedCount > 0) {
     title       = 'Exploit Confirmed — Automated Fix Generated';
-    description = `${exploitable} exploitable threat(s) confirmed. An automated fix was generated and internally verified. A patch verification rescan has been triggered — a GitHub Issue will be opened once the rescan verdict is known.`;
+    description = `${exploitable} exploitable threat(s) confirmed. Automated fix(es) generated and verified — patch verification rescan triggered. A GitHub Issue has been opened for each finding with the full analysis and fix branch link.`;
     color       = DC_ORANGE;
   } else if (exploitable > 0) {
     title       = 'Exploit Confirmed — Manual Remediation Required';
-    description = `${exploitable} exploitable threat(s) confirmed. No automated fix was generated. A GitHub Issue has been opened with the full analysis.`;
+    description = `${exploitable} exploitable threat(s) confirmed. No automated fix was generated. A GitHub Issue has been opened for each finding with the full analysis.`;
     color       = DC_RED;
+  } else if (conditional > 0 && fixedCount > 0 && failedCount > 0) {
+    title       = 'Conditional Exploit — Partial Remediation';
+    description = `${conditional} conditionally exploitable threat(s) detected. ${fixedCount} automated fix(es) generated and verified — patch verification rescan triggered. ${failedCount} threat(s) could not be automatically remediated — a GitHub Issue has been opened for each finding.`;
+    color       = DC_ORANGE;
+  } else if (conditional > 0 && fixedCount > 0) {
+    title       = 'Conditional Exploit — Automated Fix Generated';
+    description = `${conditional} conditionally exploitable threat(s) detected. Automated fix(es) generated and verified — patch verification rescan triggered. A GitHub Issue has been opened for each finding.`;
+    color       = DC_ORANGE;
   } else if (conditional > 0) {
     title       = 'Conditional Exploit Confirmed';
-    description = `${conditional} conditionally exploitable threat(s) detected. Exploitability depends on runtime configuration or deployment context.`;
+    description = `${conditional} conditionally exploitable threat(s) detected. Exploitability depends on runtime configuration or deployment context. A GitHub Issue has been opened for each finding.`;
     color       = DC_ORANGE;
   } else if (refused > 0 && refused === llmReports.size) {
     title       = 'Model Refused Analysis';
-    description = 'The model declined to analyze the detected threats. Switch to a security-capable model for full exploit analysis.';
+    description = 'The LLM declined to analyze the detected threats. Switch to a security-capable model for full exploit analysis.';
     color       = DC_ORANGE;
   } else if (notExploitable > 0) {
     title       = 'Threats Analyzed — Not Exploitable';
-    description = `${sortedThreats.length} threat(s) confirmed in the dependency set. LLM exploit analysis determined none are reachable in the current codebase.`;
+    description = `${sortedThreats.length} threat(s) confirmed in the dependency set. Exploit analysis determined none are reachable in the current codebase.`;
     color       = DC_GREEN;
   } else if (exploitContexts.length === 0) {
-    title       = 'Threats Detected — No Direct Code Usage';
-    description = `${sortedThreats.length} threat(s) confirmed in the dependency set but no reachable code usage was found. The vulnerable packages are installed but not imported in application source.`;
+    title       = 'Threats Detected — Not Reachable in Source';
+    description = `${sortedThreats.length} threat(s) confirmed in the dependency set but the vulnerable packages are not imported in application source — no reachable code usage found.`;
     color       = DC_GREY;
   } else {
     title       = 'Analysis Complete';
-    description = `${sortedThreats.length} threat(s) processed. No LLM analysis was performed — provide an API key to enable exploit analysis.`;
+    description = `${sortedThreats.length} threat(s) processed. No LLM analysis results were produced — check pipeline warnings for details.`;
     color       = DC_GREY;
   }
 
   const fields: object[] = [
-    { name: 'Repository',        value: repoName,                      inline: true },
-    { name: 'Packages affected', value: String(sortedThreats.length),  inline: true },
+    { name: 'Repository', value: repoName, inline: true },
   ];
 
   if (verdicts.length > 0) {
@@ -207,17 +221,24 @@ function discordAnalysisComplete(
   }
 
   for (const ctx of exploitContexts.slice(0, 3)) {
-    const report   = llmReports.get(ctx.threat.ghsaId);
-    const verdict  = report ? parseVerdict(report) : null;
-    const branch   = fixBranches.get(ctx.threat.ghsaId);
-    const verified = verificationResults.get(ctx.threat.ghsaId);
+    const report      = llmReports.get(ctx.threat.ghsaId);
+    const verdict     = report ? parseVerdict(report) : null;
+    const branch      = fixBranches.get(ctx.threat.ghsaId);
+    const verified    = verificationResults.get(ctx.threat.ghsaId);
+    const wasAttempted = remediationTargets.some(r => r.threat.ghsaId === ctx.threat.ghsaId);
+    const rescanned   = rescanTriggered.has(ctx.threat.ghsaId);
+
     const lines: string[] = [
       `${ctx.threat.severity}  |  ${ctx.threat.ghsaId}`,
       buildAttackPathString(ctx),
     ];
-    if (verdict)                  lines.push(`Verdict: ${verdict}`);
-    if (branch && verified)       lines.push(`Fix branch: \`${branch}\` (verified — rescan pending)`);
-    else if (branch && !verified) lines.push(`Fix branch: \`${branch}\` (verification failed)`);
+    if (verdict) lines.push(`Verdict: ${verdict}`);
+
+    if (branch && rescanned)     lines.push(`Fix branch: \`${branch}\` (verified — rescan pending)`);
+    else if (branch)             lines.push(`Fix branch: \`${branch}\` (verified)`);
+    else if (verified === false) lines.push(`Fix not verified — manual remediation required`);
+    else if (wasAttempted)       lines.push(`Automated remediation failed (LLM timeout) — see GitHub Issue`);
+
     fields.push({ name: ctx.threat.packageName, value: lines.join('\n'), inline: false });
   }
 
@@ -1017,7 +1038,7 @@ async function main() {
         const pkgName = exploitContexts[0]?.threat.packageName ?? rescanGhsaId ?? '';
         await sendDiscordNotification(discordWebhook, discordRescanComplete(repoName, rescanGhsaId ?? '', patchVerdict, pkgName));
       } else {
-        await sendDiscordNotification(discordWebhook, discordAnalysisComplete(repoName, sortedThreats, exploitContexts, llmReports, fixBranches, verificationResults));
+        await sendDiscordNotification(discordWebhook, discordAnalysisComplete(repoName, sortedThreats, exploitContexts, llmReports, fixBranches, verificationResults, remediationTargets, rescanTriggered));
       }
     }
 
