@@ -686,35 +686,45 @@ async function main() {
     await saveSeenGhsaIds(token, currentIds);
 
     // ── THREAT QUEUE ──────────────────────────────────────────────────────────
+    const reachableThreats    = sortedThreats.filter(t => exploitContexts.some(c => c.threat.ghsaId === t.ghsaId));
+    const nonReachableThreats = sortedThreats.filter(t => !exploitContexts.some(c => c.threat.ghsaId === t.ghsaId));
+
     core.info('');
     core.info(LIGHT);
     core.info('  THREAT QUEUE');
     core.info(LIGHT);
     core.info('');
 
-    for (let i = 0; i < sortedThreats.length; i++) {
-      const t   = sortedThreats[i];
-      const ctx = exploitContexts.find(c => c.threat.ghsaId === t.ghsaId);
+    for (let i = 0; i < reachableThreats.length; i++) {
+      const t   = reachableThreats[i];
+      const ctx = exploitContexts.find(c => c.threat.ghsaId === t.ghsaId)!;
 
       core.info(`  #${i + 1}  ${t.packageName.padEnd(22)} ${t.severity.padEnd(10)} ${t.ghsaId}`);
       core.info(`       ${t.summary}`);
       core.info(`       Vulnerable : ${t.vulnerableVersionRange ?? 'unknown'}   →   Fix: ${t.firstPatchedVersion ?? 'no patch available'}`);
       core.info(`       Risk       : ${t.isDevDependency ? 'Dev dependency' : 'Production'}`);
 
-      if (ctx) {
-        const guardStr  = ctx.guards.guards.length === 0
-          ? 'none'
-          : ctx.guards.guards.map(g => g.type).join(', ');
-        const pathLabel = ctx.codeSlice.isIndirect
-          ? `Indirect path: ${buildAttackPathString(ctx)}  (via ${ctx.codeSlice.viaPackage})`
-          : `Attack path: ${buildAttackPathString(ctx)}`;
-        core.info(`       ${pathLabel}`);
-        core.info(`       Guards     : ${guardStr}`);
-      } else {
-        core.info(`       Code usage : not reachable — no imports found in source`);
-      }
-
+      const guardStr  = ctx.guards.guards.length === 0
+        ? 'none'
+        : ctx.guards.guards.map(g => g.type).join(', ');
+      const pathLabel = ctx.codeSlice.isIndirect
+        ? `Indirect path: ${buildAttackPathString(ctx)}  (via ${ctx.codeSlice.viaPackage})`
+        : `Attack path: ${buildAttackPathString(ctx)}`;
+      core.info(`       ${pathLabel}`);
+      core.info(`       Guards     : ${guardStr}`);
       core.info('');
+    }
+
+    if (nonReachableThreats.length > 0) {
+      core.info(LIGHT);
+      core.info('  NOT REACHABLE IN SOURCE');
+      core.info(LIGHT);
+      core.info('');
+      for (const t of nonReachableThreats) {
+        core.info(`  ${t.packageName.padEnd(22)} ${t.severity.padEnd(10)} ${t.ghsaId}`);
+        core.info(`       ${t.summary}`);
+        core.info('');
+      }
     }
 
     // ── EXPLOIT ANALYSIS ─────────────────────────────────────────────────────
