@@ -378,8 +378,7 @@ async function main() {
       `Threshold: ${threshold}`,
       `Adjacent risks: ${includeAdjacentRisks ? 'on' : 'off'}`,
       `Create issue: ${createIssue ? 'on' : 'off'}`,
-      `Mode: ${rescanMode ? 'patch-verification' : 'primary-scan'}`,
-      `Auto rescan: ${autoRescan ? 'on' : 'off'}`,
+      `Patch verification: ${autoRescan ? 'on' : 'off'}`,
     ];
     if (demoMode) configParts.push('Demo mode');
 
