@@ -75,6 +75,8 @@ Propose a minimal code-level fix for the application code above that mitigates t
 - Address the exact trigger conditions identified above
 - Be written in the same language and style as the original code
 - Change as little as possible — do not refactor unrelated logic
+- Prefer declarative constraints over detection-based validation: if the vulnerability is algorithm or type confusion, enforce the expected algorithm or type explicitly (e.g. \`{ algorithms: ['RS256'] }\`) rather than trying to detect whether the input is malicious; if it is injection, use parameterised queries rather than sanitising input; a constraint that prevents the bad input from being used at all is always stronger than one that tries to detect it
+- Before finalising your fix, verify: (a) the exact attacker input your fix blocks, and (b) at least one input variant — different encoding, format, or value — that could still bypass it. If you identify a bypass, revise the fix before responding
 
 Produce your response with exactly these sections:
 
@@ -133,7 +135,9 @@ VERIFICATION RESULT: NOT CONFIRMED — ${verificationFailureReason}
 ═══════════════════════════════════════════════
 TASK
 ═══════════════════════════════════════════════
-Propose an improved fix that addresses the specific weakness above.
+Propose an improved fix that addresses the specific weakness above. The fix must:
+- Prefer declarative constraints over detection-based validation: enforce the expected algorithm, type, or format explicitly rather than trying to detect invalid inputs; a constraint that prevents misuse is always stronger than one that detects it
+- Before finalising your fix, verify: (a) the exact attacker input your fix blocks, and (b) at least one input variant that could still bypass it. If you identify a bypass, revise the fix before responding
 
 ## Fixed Code
 The complete corrected version of each function you modified. Include ONLY functions that you actually changed — do not output functions that are identical to the original.
