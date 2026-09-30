@@ -843,8 +843,9 @@ async function main() {
       core.info('  NOT REACHABLE IN SOURCE');
       core.info(LIGHT);
       core.info('');
-      for (const t of nonReachableThreats) {
-        core.info(`  ${t.packageName.padEnd(22)} ${t.severity.padEnd(10)} ${t.ghsaId}`);
+      for (let i = 0; i < nonReachableThreats.length; i++) {
+        const t = nonReachableThreats[i];
+        core.info(`  #${reachableThreats.length + i + 1}  ${t.packageName.padEnd(22)} ${t.severity.padEnd(10)} ${t.ghsaId}`);
         core.info(`       ${t.summary}`);
         core.info('');
       }
@@ -856,6 +857,8 @@ async function main() {
         const report = llmReports.get(ctx.threat.ghsaId);
         if (!report) continue;
 
+        core.info('');
+        core.info('');
         core.info(LIGHT);
         core.info(`  EXPLOIT ANALYSIS  —  ${ctx.threat.packageName}  (${ctx.threat.ghsaId})`);
         core.info(LIGHT);
@@ -1048,6 +1051,8 @@ async function main() {
         }
       }
     }
+    core.info('');
+    core.info('');
     core.info(HEAVY);
 
     // ── WRITE RUN RESULT ────────────────────────────────────────────────────────
