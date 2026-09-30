@@ -681,6 +681,55 @@ async function main() {
       if (unfixedTargets.length > 0) {
         core.info(`  Issues opened for ${unfixedTargets.length} exploitable threat(s) without automated fix`);
       }
+
+      // Open an immediate issue for each threat that got a fix branch so the team
+      // is notified right away — the rescan will follow up with the final patch verdict.
+      const fixedTargets = remediationTargets.filter(ctx => fixBranches.has(ctx.threat.ghsaId));
+      for (const ctx of fixedTargets) {
+        const branch  = fixBranches.get(ctx.threat.ghsaId)!;
+        const report  = llmReports.get(ctx.threat.ghsaId) ?? '';
+        const verdict = parseVerdict(report) ?? 'unknown';
+        const rescanned = rescanTriggered.has(ctx.threat.ghsaId);
+
+        const issueBody = [
+          `## Fix Branch Created — Patch Verification In Progress`,
+          ``,
+          `| | |`,
+          `|---|---|`,
+          `| **Package** | \`${ctx.threat.packageName}\` |`,
+          `| **Advisory** | [${ctx.threat.ghsaId}](https://github.com/advisories/${ctx.threat.ghsaId}) |`,
+          `| **Severity** | ${ctx.threat.severity} |`,
+          `| **Verdict** | ${verdict} |`,
+          `| **Attack path** | \`${buildAttackPathString(ctx)}\` |`,
+          `| **Fix branch** | [\`${branch}\`](../../compare/${branch}) |`,
+          ``,
+          `---`,
+          ``,
+          `### What Happened`,
+          ``,
+          `VulTool confirmed this vulnerability as exploitable and generated an automated application-level fix.`,
+          `The fix has been pushed to [\`${branch}\`](../../compare/${branch}).`,
+          rescanned
+            ? `A patch verification rescan has been triggered and will follow up with a confirmed PATCH_CONFIRMED or PATCH_FAILED verdict.`
+            : `Patch verification rescan was not triggered — review and test the fix branch manually before merging.`,
+          ``,
+          `---`,
+          ``,
+          `### Exploit Analysis`,
+          ``,
+          report,
+          ``,
+          `---`,
+          ``,
+          `> *Opened automatically by VulTool · [Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})*`,
+        ].join('\n');
+
+        const issueTitle = `[VulTool] ${ctx.threat.severity} · ${ctx.threat.packageName} (${ctx.threat.ghsaId}) — fix branch created, verification pending`;
+        await createGithubIssue(token, issueTitle, issueBody);
+      }
+      if (fixedTargets.length > 0) {
+        core.info(`  Issues opened for ${fixedTargets.length} exploitable threat(s) with fix branch pending verification`);
+      }
     }
 
     await saveSeenGhsaIds(token, currentIds);
@@ -905,11 +954,20 @@ async function main() {
         core.info(`  ${'Package'.padEnd(28)} ${'Verdict'.padEnd(28)} Fix branch`);
         core.info(`  ${'─'.repeat(28)} ${'─'.repeat(28)} ${'─'.repeat(28)}`);
         for (const t of analyzedThreats) {
-          const verdict   = parseVerdict(llmReports.get(t.ghsaId) ?? '') ?? 'not analyzed';
-          const branch    = fixBranches.get(t.ghsaId);
-          const rescanned = rescanTriggered.has(t.ghsaId);
-          const fixStatus = branch && rescanned ? `${branch} (rescan triggered)`
-                          : branch              ? branch
+          const verdict      = parseVerdict(llmReports.get(t.ghsaId) ?? '') ?? 'not analyzed';
+          const branch       = fixBranches.get(t.ghsaId);
+          const rescanned    = rescanTriggered.has(t.ghsaId);
+          const isActionable = actionableVerdicts.has(verdict);
+          const wasAttempted = remediationTargets.some(ctx => ctx.threat.ghsaId === t.ghsaId);
+          const hasReport    = remediationReports.has(t.ghsaId);
+          const verified     = verificationResults.get(t.ghsaId);
+
+          const fixStatus = branch && rescanned  ? `${branch} (rescan triggered)`
+                          : branch               ? branch
+                          : verified === false   ? 'fix generated — verification failed'
+                          : hasReport            ? 'fix generated — branch creation failed'
+                          : wasAttempted         ? 'remediation failed (LLM timeout)'
+                          : isActionable         ? 'remediation skipped — no API key'
                           : '—';
           core.info(`  ${t.packageName.padEnd(28)} ${verdict.padEnd(28)} ${fixStatus}`);
         }
