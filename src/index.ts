@@ -1,6 +1,5 @@
 import * as core from '@actions/core';
 import * as github from '@actions/github';
-import { DefaultArtifactClient } from '@actions/artifact';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
@@ -23,33 +22,40 @@ import { callLLM } from './components/purple-team/llm-client';
 import { ExploitContext } from './components/purple-team/types';
 import { Advisory, Threat } from './types';
 
-const STATE_FILE      = '/tmp/vultool-advisory-state.json';
-const ARTIFACT_NAME   = 'vultool-advisory-state';
+const STATE_REPO_PATH = '.github/vultool-state.json';
 
 async function loadLastSeenGhsaIds(token: string): Promise<Set<string>> {
   try {
     const octokit = github.getOctokit(token);
     const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
-    const { data } = await octokit.rest.actions.listArtifactsForRepo({
-      owner, repo, name: ARTIFACT_NAME, per_page: 1,
-    });
-    if (data.artifacts.length === 0) return new Set<string>();
-    const artifactId = data.artifacts[0].id;
-    const client = new DefaultArtifactClient();
-    await client.downloadArtifact(artifactId, { path: '/tmp' });
-    if (fs.existsSync(STATE_FILE)) {
-      const stored = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+    const { data } = await octokit.rest.repos.getContent({ owner, repo, path: STATE_REPO_PATH });
+    if ('content' in data && typeof data.content === 'string') {
+      const stored = JSON.parse(Buffer.from(data.content, 'base64').toString('utf8'));
       return new Set<string>(stored.ghsaIds ?? []);
     }
-  } catch { /* first run or download failed — treat as empty */ }
+  } catch { /* file doesn't exist yet — first run */ }
   return new Set<string>();
 }
 
 async function saveSeenGhsaIds(token: string, ids: Set<string>): Promise<void> {
   try {
-    fs.writeFileSync(STATE_FILE, JSON.stringify({ ghsaIds: [...ids] }));
-    const client = new DefaultArtifactClient();
-    await client.uploadArtifact(ARTIFACT_NAME, [STATE_FILE], '/tmp', { retentionDays: 90 });
+    const octokit = github.getOctokit(token);
+    const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
+
+    let sha: string | undefined;
+    try {
+      const { data } = await octokit.rest.repos.getContent({ owner, repo, path: STATE_REPO_PATH });
+      if ('sha' in data) sha = data.sha as string;
+    } catch { /* file doesn't exist yet */ }
+
+    const content = Buffer.from(JSON.stringify({ ghsaIds: [...ids] })).toString('base64');
+    await octokit.rest.repos.createOrUpdateFileContents({
+      owner, repo,
+      path: STATE_REPO_PATH,
+      message: 'chore: update VulTool advisory state [skip ci]',
+      content,
+      ...(sha ? { sha } : {}),
+    });
   } catch (err) {
     core.warning(`Could not save advisory state: ${err instanceof Error ? err.message : String(err)}`);
   }

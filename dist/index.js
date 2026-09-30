@@ -34959,6 +34959,10 @@ TASK
 ═══════════════════════════════════════════════
 Produce a vulnerability reachability report with exactly these sections:
 
+## Precondition Verification
+List each specific condition the advisory states must hold for this vulnerability to be exploitable (e.g. a certain option must be passed, attacker-controlled data must reach a specific parameter, a particular API must be called in a specific way). For each precondition, state in one sentence whether it is satisfied by the code shown above and why.
+A vulnerability is EXPLOITABLE only if every precondition is met by the actual code — not merely by the library in theory.
+
 ## Reachability Assessment
 In 2–3 sentences: is this vulnerability reachable and triggerable in this specific codebase given the code path and guards above? Reference the actual route and input surface. Be direct — do not repeat the advisory summary.
 
@@ -35342,29 +35346,39 @@ const remediation_prompt_builder_1 = __nccwpck_require__(3083);
 const verification_prompt_builder_1 = __nccwpck_require__(4561);
 const fix_applier_1 = __nccwpck_require__(4766);
 const llm_client_1 = __nccwpck_require__(3562);
-const VULTOOL_VAR = 'VULTOOL_SEEN_GHSA_IDS';
+const STATE_REPO_PATH = '.github/vultool-state.json';
 async function loadLastSeenGhsaIds(token) {
     try {
         const octokit = github.getOctokit(token);
         const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
-        const { data } = await octokit.rest.actions.getRepoVariable({ owner, repo, name: VULTOOL_VAR });
-        return new Set(data.value.split(',').filter(Boolean));
+        const { data } = await octokit.rest.repos.getContent({ owner, repo, path: STATE_REPO_PATH });
+        if ('content' in data && typeof data.content === 'string') {
+            const stored = JSON.parse(Buffer.from(data.content, 'base64').toString('utf8'));
+            return new Set(stored.ghsaIds ?? []);
+        }
     }
-    catch {
-        return new Set();
-    }
+    catch { /* file doesn't exist yet — first run */ }
+    return new Set();
 }
 async function saveSeenGhsaIds(token, ids) {
     try {
         const octokit = github.getOctokit(token);
         const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
-        const value = [...ids].join(',');
+        let sha;
         try {
-            await octokit.rest.actions.updateRepoVariable({ owner, repo, name: VULTOOL_VAR, value });
+            const { data } = await octokit.rest.repos.getContent({ owner, repo, path: STATE_REPO_PATH });
+            if ('sha' in data)
+                sha = data.sha;
         }
-        catch {
-            await octokit.rest.actions.createRepoVariable({ owner, repo, name: VULTOOL_VAR, value });
-        }
+        catch { /* file doesn't exist yet */ }
+        const content = Buffer.from(JSON.stringify({ ghsaIds: [...ids] })).toString('base64');
+        await octokit.rest.repos.createOrUpdateFileContents({
+            owner, repo,
+            path: STATE_REPO_PATH,
+            message: 'chore: update VulTool advisory state [skip ci]',
+            content,
+            ...(sha ? { sha } : {}),
+        });
     }
     catch (err) {
         core.warning(`Could not save advisory state: ${err instanceof Error ? err.message : String(err)}`);
@@ -35429,54 +35443,69 @@ function discordDependencyMapperFailed(repoName) {
 function discordNoThreats(repoName, fetched, skipped) {
     return discordEmbed('No Matching Vulnerabilities', `${fetched} advisor${fetched === 1 ? 'y' : 'ies'} fetched, ${skipped} filtered out — none matched the installed dependency set at the configured severity threshold.`, DC_GREEN, [{ name: 'Repository', value: repoName, inline: true }], repoName);
 }
-function discordAnalysisComplete(repoName, sortedThreats, exploitContexts, llmReports, fixBranches, verificationResults) {
+function discordAnalysisComplete(repoName, sortedThreats, exploitContexts, llmReports, fixBranches, verificationResults, remediationTargets, rescanTriggered, llmFailedIds) {
     const verdicts = [...llmReports.values()].map(parseVerdict).filter(Boolean);
     const exploitable = verdicts.filter(v => v === 'EXPLOITABLE').length;
     const conditional = verdicts.filter(v => v === 'CONDITIONALLY_EXPLOITABLE').length;
     const notExploitable = verdicts.filter(v => v === 'NOT_EXPLOITABLE').length;
     const refused = verdicts.filter(v => v === 'REFUSED').length;
-    const hasVerifiedFix = [...fixBranches.keys()].some(id => verificationResults.get(id) === true);
+    const fixedCount = fixBranches.size;
+    const failedCount = remediationTargets.filter(ctx => !fixBranches.has(ctx.threat.ghsaId)).length;
     let title;
     let description;
     let color;
-    if (exploitable > 0 && hasVerifiedFix) {
+    if (exploitable > 0 && fixedCount > 0 && failedCount > 0) {
+        title = 'Exploit Confirmed — Partial Remediation';
+        description = `${exploitable} exploitable threat(s) confirmed. ${fixedCount} automated fix(es) generated and verified — patch verification rescan triggered. ${failedCount} threat(s) could not be automatically remediated (LLM timeout) — a GitHub Issue has been opened for each finding.`;
+        color = DC_ORANGE;
+    }
+    else if (exploitable > 0 && fixedCount > 0) {
         title = 'Exploit Confirmed — Automated Fix Generated';
-        description = `${exploitable} exploitable threat(s) confirmed. An automated fix was generated and internally verified. A patch verification rescan has been triggered — a GitHub Issue will be opened once the rescan verdict is known.`;
+        description = `${exploitable} exploitable threat(s) confirmed. Automated fix(es) generated and verified — patch verification rescan triggered. A GitHub Issue has been opened for each finding with the full analysis and fix branch link.`;
         color = DC_ORANGE;
     }
     else if (exploitable > 0) {
         title = 'Exploit Confirmed — Manual Remediation Required';
-        description = `${exploitable} exploitable threat(s) confirmed. No automated fix was generated. A GitHub Issue has been opened with the full analysis.`;
+        description = `${exploitable} exploitable threat(s) confirmed. No automated fix was generated. A GitHub Issue has been opened for each finding with the full analysis.`;
         color = DC_RED;
+    }
+    else if (conditional > 0 && fixedCount > 0 && failedCount > 0) {
+        title = 'Conditional Exploit — Partial Remediation';
+        description = `${conditional} conditionally exploitable threat(s) detected. ${fixedCount} automated fix(es) generated and verified — patch verification rescan triggered. ${failedCount} threat(s) could not be automatically remediated — a GitHub Issue has been opened for each finding.`;
+        color = DC_ORANGE;
+    }
+    else if (conditional > 0 && fixedCount > 0) {
+        title = 'Conditional Exploit — Automated Fix Generated';
+        description = `${conditional} conditionally exploitable threat(s) detected. Automated fix(es) generated and verified — patch verification rescan triggered. A GitHub Issue has been opened for each finding.`;
+        color = DC_ORANGE;
     }
     else if (conditional > 0) {
         title = 'Conditional Exploit Confirmed';
-        description = `${conditional} conditionally exploitable threat(s) detected. Exploitability depends on runtime configuration or deployment context.`;
+        description = `${conditional} conditionally exploitable threat(s) detected. Exploitability depends on runtime configuration or deployment context. A GitHub Issue has been opened for each finding.`;
         color = DC_ORANGE;
     }
     else if (refused > 0 && refused === llmReports.size) {
         title = 'Model Refused Analysis';
-        description = 'The model declined to analyze the detected threats. Switch to a security-capable model for full exploit analysis.';
+        description = 'The LLM declined to analyze the detected threats. Switch to a security-capable model for full exploit analysis.';
         color = DC_ORANGE;
     }
     else if (notExploitable > 0) {
         title = 'Threats Analyzed — Not Exploitable';
-        description = `${sortedThreats.length} threat(s) confirmed in the dependency set. LLM exploit analysis determined none are reachable in the current codebase.`;
+        description = `${sortedThreats.length} threat(s) confirmed in the dependency set. Exploit analysis determined none are reachable in the current codebase.`;
         color = DC_GREEN;
     }
     else if (exploitContexts.length === 0) {
-        title = 'Threats Detected — No Direct Code Usage';
-        description = `${sortedThreats.length} threat(s) confirmed in the dependency set but no reachable code usage was found. The vulnerable packages are installed but not imported in application source.`;
+        title = 'Threats Detected — Not Reachable in Source';
+        description = `${sortedThreats.length} threat(s) confirmed in the dependency set but the vulnerable packages are not imported in application source — no reachable code usage found.`;
         color = DC_GREY;
     }
     else {
         title = 'Analysis Complete';
-        description = `${sortedThreats.length} threat(s) processed. No LLM analysis was performed — provide an API key to enable exploit analysis.`;
+        description = `${sortedThreats.length} threat(s) processed. No LLM analysis results were produced — check pipeline warnings for details.`;
         color = DC_GREY;
     }
     const fields = [
         { name: 'Repository', value: repoName, inline: true },
-        { name: 'Packages affected', value: String(sortedThreats.length), inline: true },
     ];
     if (verdicts.length > 0) {
         const parts = [];
@@ -35495,16 +35524,24 @@ function discordAnalysisComplete(repoName, sortedThreats, exploitContexts, llmRe
         const verdict = report ? parseVerdict(report) : null;
         const branch = fixBranches.get(ctx.threat.ghsaId);
         const verified = verificationResults.get(ctx.threat.ghsaId);
+        const wasAttempted = remediationTargets.some(r => r.threat.ghsaId === ctx.threat.ghsaId);
+        const rescanned = rescanTriggered.has(ctx.threat.ghsaId);
         const lines = [
             `${ctx.threat.severity}  |  ${ctx.threat.ghsaId}`,
             buildAttackPathString(ctx),
         ];
         if (verdict)
             lines.push(`Verdict: ${verdict}`);
-        if (branch && verified)
+        if (branch && rescanned)
             lines.push(`Fix branch: \`${branch}\` (verified — rescan pending)`);
-        else if (branch && !verified)
-            lines.push(`Fix branch: \`${branch}\` (verification failed)`);
+        else if (branch)
+            lines.push(`Fix branch: \`${branch}\` (verified)`);
+        else if (verified === false)
+            lines.push(`Fix not verified — manual remediation required`);
+        else if (wasAttempted)
+            lines.push(`Automated remediation failed (LLM timeout) — see GitHub Issue`);
+        else if (llmFailedIds.has(ctx.threat.ghsaId))
+            lines.push(`Exploit analysis incomplete (LLM timeout) — see GitHub Issue`);
         fields.push({ name: ctx.threat.packageName, value: lines.join('\n'), inline: false });
     }
     return discordEmbed(title, description, color, fields, repoName);
@@ -35758,6 +35795,7 @@ async function main() {
         core.info(`  [C8] Purple Team            → ${exploitContexts.length > 0 ? `${exploitContexts.length} exploit context(s) assembled` : 'skipped — no reachable code usage found'}`);
         // --- C9: LLM EXPLOIT ANALYZER ---
         const llmReports = new Map();
+        const llmFailedIds = new Set(); // ghsaIds where the LLM call itself timed out / errored
         if (exploitContexts.length === 0) {
             core.info(`  [C9] LLM Exploit Analyzer   → skipped — no exploit contexts`);
         }
@@ -35772,6 +35810,7 @@ async function main() {
                 }
                 catch (err) {
                     core.warning(`  LLM call failed for ${ctx.threat.packageName}: ${err instanceof Error ? err.message : String(err)}`);
+                    llmFailedIds.add(ctx.threat.ghsaId);
                 }
             }
             core.info(`  [C9] LLM Exploit Analyzer   → ${llmReports.size} analysis complete`);
@@ -35977,6 +36016,43 @@ async function main() {
             if (fixedTargets.length > 0) {
                 core.info(`  Issues opened for ${fixedTargets.length} exploitable threat(s) with fix branch pending verification`);
             }
+            // Open an issue for each reachable threat where the LLM timed out during analysis —
+            // code usage is confirmed but we cannot determine exploitability.
+            const analysisTimedOut = exploitContexts.filter(ctx => llmFailedIds.has(ctx.threat.ghsaId));
+            for (const ctx of analysisTimedOut) {
+                const issueBody = [
+                    `## Vulnerability Analysis Incomplete — LLM Timeout`,
+                    ``,
+                    `| | |`,
+                    `|---|---|`,
+                    `| **Package** | \`${ctx.threat.packageName}\` |`,
+                    `| **Advisory** | [${ctx.threat.ghsaId}](https://github.com/advisories/${ctx.threat.ghsaId}) |`,
+                    `| **Severity** | ${ctx.threat.severity} |`,
+                    `| **Code usage** | Confirmed — direct usage found in source |`,
+                    `| **Attack path** | \`${buildAttackPathString(ctx)}\` |`,
+                    ``,
+                    `---`,
+                    ``,
+                    `### What Happened`,
+                    ``,
+                    `VulTool confirmed active code usage of this vulnerable package in the attack path above,`,
+                    `but the LLM request timed out during exploit analysis. Exploitability could not be determined.`,
+                    ``,
+                    `### Next Steps`,
+                    ``,
+                    `Re-run the pipeline to retry the analysis, or manually review the attack path to assess exploitability.`,
+                    `See the [advisory](https://github.com/advisories/${ctx.threat.ghsaId}) for full vulnerability details and patch guidance.`,
+                    ``,
+                    `---`,
+                    ``,
+                    `> *Opened automatically by VulTool · [Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})*`,
+                ].join('\n');
+                const issueTitle = `[VulTool] ${ctx.threat.severity} · ${ctx.threat.packageName} (${ctx.threat.ghsaId}) — analysis incomplete (LLM timeout)`;
+                await createGithubIssue(token, issueTitle, issueBody);
+            }
+            if (analysisTimedOut.length > 0) {
+                core.info(`  Issues opened for ${analysisTimedOut.length} reachable threat(s) with incomplete LLM analysis`);
+            }
         }
         await saveSeenGhsaIds(token, currentIds);
         // ── THREAT QUEUE ──────────────────────────────────────────────────────────
@@ -35987,6 +36063,10 @@ async function main() {
         core.info('  THREAT QUEUE');
         core.info(LIGHT);
         core.info('');
+        if (reachableThreats.length === 0) {
+            core.info('  No threats with confirmed code usage found in this run.');
+            core.info('');
+        }
         for (let i = 0; i < reachableThreats.length; i++) {
             const t = reachableThreats[i];
             const ctx = exploitContexts.find(c => c.threat.ghsaId === t.ghsaId);
@@ -36009,8 +36089,9 @@ async function main() {
             core.info('  NOT REACHABLE IN SOURCE');
             core.info(LIGHT);
             core.info('');
-            for (const t of nonReachableThreats) {
-                core.info(`  ${t.packageName.padEnd(22)} ${t.severity.padEnd(10)} ${t.ghsaId}`);
+            for (let i = 0; i < nonReachableThreats.length; i++) {
+                const t = nonReachableThreats[i];
+                core.info(`  #${reachableThreats.length + i + 1}  ${t.packageName.padEnd(22)} ${t.severity.padEnd(10)} ${t.ghsaId}`);
                 core.info(`       ${t.summary}`);
                 core.info('');
             }
@@ -36021,6 +36102,8 @@ async function main() {
                 const report = llmReports.get(ctx.threat.ghsaId);
                 if (!report)
                     continue;
+                core.info('');
+                core.info('');
                 core.info(LIGHT);
                 core.info(`  EXPLOIT ANALYSIS  —  ${ctx.threat.packageName}  (${ctx.threat.ghsaId})`);
                 core.info(LIGHT);
@@ -36206,12 +36289,15 @@ async function main() {
                             : verified === false ? 'fix generated — verification failed'
                                 : hasReport ? 'fix generated — branch creation failed'
                                     : wasAttempted ? 'remediation failed (LLM timeout)'
-                                        : isActionable ? 'remediation skipped — no API key'
-                                            : '—';
+                                        : llmFailedIds.has(t.ghsaId) ? 'analysis failed (LLM timeout)'
+                                            : isActionable ? 'remediation skipped — no API key'
+                                                : '—';
                     core.info(`  ${t.packageName.padEnd(28)} ${verdict.padEnd(28)} ${fixStatus}`);
                 }
             }
         }
+        core.info('');
+        core.info('');
         core.info(HEAVY);
         // ── WRITE RUN RESULT ────────────────────────────────────────────────────────
         try {
@@ -36256,7 +36342,7 @@ async function main() {
                 await sendDiscordNotification(discordWebhook, discordRescanComplete(repoName, rescanGhsaId ?? '', patchVerdict, pkgName));
             }
             else {
-                await sendDiscordNotification(discordWebhook, discordAnalysisComplete(repoName, sortedThreats, exploitContexts, llmReports, fixBranches, verificationResults));
+                await sendDiscordNotification(discordWebhook, discordAnalysisComplete(repoName, sortedThreats, exploitContexts, llmReports, fixBranches, verificationResults, remediationTargets, rescanTriggered, llmFailedIds));
             }
         }
     }
