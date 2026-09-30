@@ -997,9 +997,14 @@ async function main() {
     const refused         = verdicts.filter(v => v === 'REFUSED').length;
     const adjacentRisks   = includeAdjacentRisks ? [...llmReports.values()].flatMap(parseAdjacentRisks) : [];
 
+    core.info('');
+    core.info('');
     core.info(HEAVY);
     if (rescanMode) {
-      core.info('  PATCH VERIFICATION COMPLETE');
+      const rescanTitle = 'PATCH VERIFICATION COMPLETE';
+      const rescanPad   = Math.floor((60 - rescanTitle.length) / 2);
+      core.info(`${' '.repeat(rescanPad)}${rescanTitle}`);
+      core.info('');
       const patchVerdict = notExploitable > 0
         ? `PATCH_CONFIRMED — vulnerability no longer reachable`
         : exploitable > 0
@@ -1093,7 +1098,10 @@ async function main() {
       const rescanVerdictFinal = notExploitable > 0 ? 'PATCH_CONFIRMED' : exploitable > 0 ? 'PATCH_FAILED' : 'PATCH_INCONCLUSIVE';
       await closePendingVerificationIssue(token, rescanGhsaId ?? '', rescanVerdictFinal);
     } else {
-      core.info('  PIPELINE COMPLETE');
+      const title = 'PIPELINE COMPLETE';
+      const pad   = Math.floor((60 - title.length) / 2);
+      core.info(`${' '.repeat(pad)}${title}`);
+      core.info('');
       const parts = [
         `${sortedThreats.length} threat(s) confirmed`,
         `${codeSlices.length} with active code usage`,
