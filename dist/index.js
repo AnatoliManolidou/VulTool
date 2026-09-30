@@ -36370,10 +36370,12 @@ async function main() {
                 core.info(`  ${'Package'.padEnd(28)} ${'Verdict'.padEnd(28)} Fix branch`);
                 core.info(`  ${'─'.repeat(28)} ${'─'.repeat(28)} ${'─'.repeat(28)}`);
                 for (const t of analyzedThreats) {
-                    const verdict = parseVerdict(llmReports.get(t.ghsaId) ?? '') ?? 'not analyzed';
+                    const parsedVerdict = parseVerdict(llmReports.get(t.ghsaId) ?? '');
+                    const timedOut = llmFailedIds.has(t.ghsaId);
+                    const verdict = parsedVerdict ?? (timedOut ? 'analysis failed (LLM timeout)' : 'not analyzed');
                     const branch = fixBranches.get(t.ghsaId);
                     const rescanned = rescanTriggered.has(t.ghsaId);
-                    const isActionable = actionableVerdicts.has(verdict);
+                    const isActionable = actionableVerdicts.has(parsedVerdict ?? '');
                     const wasAttempted = remediationTargets.some(ctx => ctx.threat.ghsaId === t.ghsaId);
                     const hasReport = remediationReports.has(t.ghsaId);
                     const verified = verificationResults.get(t.ghsaId);
@@ -36382,9 +36384,8 @@ async function main() {
                             : verified === false ? 'fix generated — verification failed'
                                 : hasReport ? 'fix generated — branch creation failed'
                                     : wasAttempted ? 'remediation failed (LLM timeout)'
-                                        : llmFailedIds.has(t.ghsaId) ? 'analysis failed (LLM timeout)'
-                                            : isActionable ? 'remediation skipped — no API key'
-                                                : '—';
+                                        : isActionable ? 'remediation skipped — no API key'
+                                            : '—';
                     core.info(`  ${t.packageName.padEnd(28)} ${verdict.padEnd(28)} ${fixStatus}`);
                 }
             }
