@@ -35661,6 +35661,31 @@ function createFixBranch(ghsaId, packageName, modifiedFiles, workspacePath) {
     git(['checkout', '-']);
     return branch;
 }
+async function closePendingVerificationIssue(token, ghsaId, verdict) {
+    try {
+        const octokit = github.getOctokit(token);
+        const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
+        const { data: issues } = await octokit.rest.issues.listForRepo({ owner, repo, state: 'open', per_page: 100 });
+        const pending = issues.find(i => i.title.includes(ghsaId) && i.title.includes('verification pending'));
+        if (!pending)
+            return;
+        const comment = verdict === 'PATCH_CONFIRMED'
+            ? `Patch verified. Rescan confirmed the vulnerability is no longer reachable. A new issue has been opened with merge instructions.`
+            : verdict === 'PATCH_FAILED'
+                ? `Patch failed. Rescan found the vulnerability is still exploitable after the automated fix. A new issue has been opened with the rescan analysis and next steps.`
+                : `Patch verification inconclusive. The rescan did not produce a definitive verdict. Manual review of the fix branch is recommended.`;
+        await octokit.rest.issues.createComment({ owner, repo, issue_number: pending.number, body: comment });
+        await octokit.rest.issues.update({
+            owner, repo,
+            issue_number: pending.number,
+            state: 'closed',
+            state_reason: verdict === 'PATCH_CONFIRMED' ? 'completed' : 'not_planned',
+        });
+    }
+    catch (err) {
+        core.warning(`Could not close pending verification issue: ${err instanceof Error ? err.message : String(err)}`);
+    }
+}
 async function createGithubIssue(token, title, body) {
     const octokit = github.getOctokit(token);
     const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
@@ -35677,7 +35702,7 @@ async function createGithubIssue(token, title, body) {
         }
     }
 }
-async function triggerRescan(token, ghsaId, fixBranch) {
+async function triggerRescan(token, ghsaId, fixBranch, createIssue) {
     const octokit = github.getOctokit(token);
     const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
     const ref = process.env.GITHUB_REF_NAME ?? 'main';
@@ -35686,7 +35711,7 @@ async function triggerRescan(token, ghsaId, fixBranch) {
         repo,
         workflow_id: 'rescan.yml',
         ref,
-        inputs: { ghsa_id: ghsaId, fix_branch: fixBranch },
+        inputs: { ghsa_id: ghsaId, fix_branch: fixBranch, create_issue: String(createIssue) },
     });
 }
 async function main() {
@@ -35942,7 +35967,7 @@ async function main() {
                             // Step 5: trigger patch verification re-scan on the fix branch
                             if (autoRescan) {
                                 try {
-                                    await triggerRescan(token, ctx.threat.ghsaId, branch);
+                                    await triggerRescan(token, ctx.threat.ghsaId, branch, createIssue);
                                     rescanTriggered.add(ctx.threat.ghsaId);
                                 }
                                 catch (err) {
@@ -36299,6 +36324,9 @@ async function main() {
                 await createGithubIssue(token, issueTitle, issueBody);
                 core.info(`  Issue opened for patch failure on ${rescanGhsaId}`);
             }
+            // Close the original "verification pending" issue — rescan has produced a definitive result
+            const rescanVerdictFinal = notExploitable > 0 ? 'PATCH_CONFIRMED' : exploitable > 0 ? 'PATCH_FAILED' : 'PATCH_INCONCLUSIVE';
+            await closePendingVerificationIssue(token, rescanGhsaId ?? '', rescanVerdictFinal);
         }
         else {
             core.info('  PIPELINE COMPLETE');
