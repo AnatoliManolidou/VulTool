@@ -35767,10 +35767,16 @@ async function main() {
         core.info(`  [C3] Dependency Mapper      → ${installedPackages.size} packages mapped`);
         // --- C4: VULNERABILITY FILTER ---
         const { confirmed: confirmedAdvisories, versionSkips } = (0, vulnerability_filter_1.filterAdvisories)(rawAdvisories, threshold, installedPackages);
-        const skippedCount = rawAdvisories.length - confirmedAdvisories.length;
-        core.info(`  [C4] Vulnerability Filter   → ${confirmedAdvisories.length} confirmed  (${skippedCount} skipped)`);
+        const notInstalledCount = rawAdvisories.length - confirmedAdvisories.length - versionSkips.length;
+        const skippedParts = [];
+        if (notInstalledCount > 0)
+            skippedParts.push(`${notInstalledCount} not installed`);
+        if (versionSkips.length > 0)
+            skippedParts.push(`${versionSkips.length} outside version range`);
+        const skippedSummary = skippedParts.length > 0 ? `  |  ${skippedParts.join('  |  ')}` : '';
+        core.info(`  [C4] Vulnerability Filter   → ${confirmedAdvisories.length} confirmed${skippedSummary}`);
         for (const s of versionSkips) {
-            core.info(`       ↳ ${s.packageName}@${s.installedVersion} — not affected (installed version outside vulnerable range ${s.advisoryRange})`);
+            core.info(`       ↳ ${s.packageName}@${s.installedVersion} — outside ${s.advisoryRange}`);
         }
         if (confirmedAdvisories.length === 0) {
             core.info('');
@@ -35778,7 +35784,7 @@ async function main() {
             await saveSeenGhsaIds(token, currentIds);
             core.info(HEAVY);
             if (discordWebhook)
-                await sendDiscordNotification(discordWebhook, discordNoThreats(repoName, rawAdvisories.length, skippedCount));
+                await sendDiscordNotification(discordWebhook, discordNoThreats(repoName, rawAdvisories.length, rawAdvisories.length));
             return;
         }
         // --- C5: DEPLOYMENT CLASSIFIER ---

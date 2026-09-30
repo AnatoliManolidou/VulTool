@@ -504,17 +504,21 @@ async function main() {
 
     // --- C4: VULNERABILITY FILTER ---
     const { confirmed: confirmedAdvisories, versionSkips } = filterAdvisories(rawAdvisories, threshold, installedPackages);
-    const skippedCount = rawAdvisories.length - confirmedAdvisories.length;
-    core.info(`  [C4] Vulnerability Filter   → ${confirmedAdvisories.length} confirmed  (${skippedCount} skipped)`);
+    const notInstalledCount = rawAdvisories.length - confirmedAdvisories.length - versionSkips.length;
+    const skippedParts: string[] = [];
+    if (notInstalledCount > 0) skippedParts.push(`${notInstalledCount} not installed`);
+    if (versionSkips.length > 0) skippedParts.push(`${versionSkips.length} outside version range`);
+    const skippedSummary = skippedParts.length > 0 ? `  |  ${skippedParts.join('  |  ')}` : '';
+    core.info(`  [C4] Vulnerability Filter   → ${confirmedAdvisories.length} confirmed${skippedSummary}`);
     for (const s of versionSkips) {
-      core.info(`       ↳ ${s.packageName}@${s.installedVersion} — not affected (installed version outside vulnerable range ${s.advisoryRange})`);
+      core.info(`       ↳ ${s.packageName}@${s.installedVersion} — outside ${s.advisoryRange}`);
     }
     if (confirmedAdvisories.length === 0) {
       core.info('');
       core.info('  No matching vulnerabilities found in this repository.');
       await saveSeenGhsaIds(token, currentIds);
       core.info(HEAVY);
-      if (discordWebhook) await sendDiscordNotification(discordWebhook, discordNoThreats(repoName, rawAdvisories.length, skippedCount));
+      if (discordWebhook) await sendDiscordNotification(discordWebhook, discordNoThreats(repoName, rawAdvisories.length, rawAdvisories.length));
       return;
     }
 
