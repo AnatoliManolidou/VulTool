@@ -157,6 +157,7 @@ function discordAnalysisComplete(
   verificationResults: Map<string, boolean>,
   remediationTargets: ExploitContext[],
   rescanTriggered: Set<string>,
+  llmFailedIds: Set<string>,
 ): object {
   const verdicts       = [...llmReports.values()].map(parseVerdict).filter(Boolean) as string[];
   const exploitable    = verdicts.filter(v => v === 'EXPLOITABLE').length;
@@ -239,10 +240,11 @@ function discordAnalysisComplete(
     ];
     if (verdict) lines.push(`Verdict: ${verdict}`);
 
-    if (branch && rescanned)     lines.push(`Fix branch: \`${branch}\` (verified — rescan pending)`);
-    else if (branch)             lines.push(`Fix branch: \`${branch}\` (verified)`);
-    else if (verified === false) lines.push(`Fix not verified — manual remediation required`);
-    else if (wasAttempted)       lines.push(`Automated remediation failed (LLM timeout) — see GitHub Issue`);
+    if (branch && rescanned)                  lines.push(`Fix branch: \`${branch}\` (verified — rescan pending)`);
+    else if (branch)                          lines.push(`Fix branch: \`${branch}\` (verified)`);
+    else if (verified === false)              lines.push(`Fix not verified — manual remediation required`);
+    else if (wasAttempted)                    lines.push(`Automated remediation failed (LLM timeout) — see GitHub Issue`);
+    else if (llmFailedIds.has(ctx.threat.ghsaId)) lines.push(`Exploit analysis incomplete (LLM timeout) — see GitHub Issue`);
 
     fields.push({ name: ctx.threat.packageName, value: lines.join('\n'), inline: false });
   }
@@ -526,7 +528,8 @@ async function main() {
     core.info(`  [C8] Purple Team            → ${exploitContexts.length > 0 ? `${exploitContexts.length} exploit context(s) assembled` : 'skipped — no reachable code usage found'}`);
 
     // --- C9: LLM EXPLOIT ANALYZER ---
-    const llmReports = new Map<string, string>();
+    const llmReports   = new Map<string, string>();
+    const llmFailedIds = new Set<string>(); // ghsaIds where the LLM call itself timed out / errored
     if (exploitContexts.length === 0) {
       core.info(`  [C9] LLM Exploit Analyzer   → skipped — no exploit contexts`);
     } else if (!llmApiKey) {
@@ -538,6 +541,7 @@ async function main() {
           llmReports.set(ctx.threat.ghsaId, report);
         } catch (err) {
           core.warning(`  LLM call failed for ${ctx.threat.packageName}: ${err instanceof Error ? err.message : String(err)}`);
+          llmFailedIds.add(ctx.threat.ghsaId);
         }
       }
       core.info(`  [C9] LLM Exploit Analyzer   → ${llmReports.size} analysis complete`);
@@ -755,6 +759,45 @@ async function main() {
       }
       if (fixedTargets.length > 0) {
         core.info(`  Issues opened for ${fixedTargets.length} exploitable threat(s) with fix branch pending verification`);
+      }
+
+      // Open an issue for each reachable threat where the LLM timed out during analysis —
+      // code usage is confirmed but we cannot determine exploitability.
+      const analysisTimedOut = exploitContexts.filter(ctx => llmFailedIds.has(ctx.threat.ghsaId));
+      for (const ctx of analysisTimedOut) {
+        const issueBody = [
+          `## Vulnerability Analysis Incomplete — LLM Timeout`,
+          ``,
+          `| | |`,
+          `|---|---|`,
+          `| **Package** | \`${ctx.threat.packageName}\` |`,
+          `| **Advisory** | [${ctx.threat.ghsaId}](https://github.com/advisories/${ctx.threat.ghsaId}) |`,
+          `| **Severity** | ${ctx.threat.severity} |`,
+          `| **Code usage** | Confirmed — direct usage found in source |`,
+          `| **Attack path** | \`${buildAttackPathString(ctx)}\` |`,
+          ``,
+          `---`,
+          ``,
+          `### What Happened`,
+          ``,
+          `VulTool confirmed active code usage of this vulnerable package in the attack path above,`,
+          `but the LLM request timed out during exploit analysis. Exploitability could not be determined.`,
+          ``,
+          `### Next Steps`,
+          ``,
+          `Re-run the pipeline to retry the analysis, or manually review the attack path to assess exploitability.`,
+          `See the [advisory](https://github.com/advisories/${ctx.threat.ghsaId}) for full vulnerability details and patch guidance.`,
+          ``,
+          `---`,
+          ``,
+          `> *Opened automatically by VulTool · [Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})*`,
+        ].join('\n');
+
+        const issueTitle = `[VulTool] ${ctx.threat.severity} · ${ctx.threat.packageName} (${ctx.threat.ghsaId}) — analysis incomplete (LLM timeout)`;
+        await createGithubIssue(token, issueTitle, issueBody);
+      }
+      if (analysisTimedOut.length > 0) {
+        core.info(`  Issues opened for ${analysisTimedOut.length} reachable threat(s) with incomplete LLM analysis`);
       }
     }
 
@@ -993,12 +1036,13 @@ async function main() {
           const hasReport    = remediationReports.has(t.ghsaId);
           const verified     = verificationResults.get(t.ghsaId);
 
-          const fixStatus = branch && rescanned  ? `${branch} (rescan triggered)`
-                          : branch               ? branch
-                          : verified === false   ? 'fix generated — verification failed'
-                          : hasReport            ? 'fix generated — branch creation failed'
-                          : wasAttempted         ? 'remediation failed (LLM timeout)'
-                          : isActionable         ? 'remediation skipped — no API key'
+          const fixStatus = branch && rescanned           ? `${branch} (rescan triggered)`
+                          : branch                          ? branch
+                          : verified === false              ? 'fix generated — verification failed'
+                          : hasReport                       ? 'fix generated — branch creation failed'
+                          : wasAttempted                    ? 'remediation failed (LLM timeout)'
+                          : llmFailedIds.has(t.ghsaId)     ? 'analysis failed (LLM timeout)'
+                          : isActionable                    ? 'remediation skipped — no API key'
                           : '—';
           core.info(`  ${t.packageName.padEnd(28)} ${verdict.padEnd(28)} ${fixStatus}`);
         }
@@ -1048,7 +1092,7 @@ async function main() {
         const pkgName = exploitContexts[0]?.threat.packageName ?? rescanGhsaId ?? '';
         await sendDiscordNotification(discordWebhook, discordRescanComplete(repoName, rescanGhsaId ?? '', patchVerdict, pkgName));
       } else {
-        await sendDiscordNotification(discordWebhook, discordAnalysisComplete(repoName, sortedThreats, exploitContexts, llmReports, fixBranches, verificationResults, remediationTargets, rescanTriggered));
+        await sendDiscordNotification(discordWebhook, discordAnalysisComplete(repoName, sortedThreats, exploitContexts, llmReports, fixBranches, verificationResults, remediationTargets, rescanTriggered, llmFailedIds));
       }
     }
 
