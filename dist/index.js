@@ -35639,8 +35639,7 @@ async function main() {
             `Threshold: ${threshold}`,
             `Adjacent risks: ${includeAdjacentRisks ? 'on' : 'off'}`,
             `Create issue: ${createIssue ? 'on' : 'off'}`,
-            `Mode: ${rescanMode ? 'patch-verification' : 'primary-scan'}`,
-            `Auto rescan: ${autoRescan ? 'on' : 'off'}`,
+            `Patch verification: ${autoRescan ? 'on' : 'off'}`,
         ];
         if (demoMode)
             configParts.push('Demo mode');
@@ -35932,35 +35931,89 @@ async function main() {
             if (unfixedTargets.length > 0) {
                 core.info(`  Issues opened for ${unfixedTargets.length} exploitable threat(s) without automated fix`);
             }
+            // Open an immediate issue for each threat that got a fix branch so the team
+            // is notified right away — the rescan will follow up with the final patch verdict.
+            const fixedTargets = remediationTargets.filter(ctx => fixBranches.has(ctx.threat.ghsaId));
+            for (const ctx of fixedTargets) {
+                const branch = fixBranches.get(ctx.threat.ghsaId);
+                const report = llmReports.get(ctx.threat.ghsaId) ?? '';
+                const verdict = parseVerdict(report) ?? 'unknown';
+                const rescanned = rescanTriggered.has(ctx.threat.ghsaId);
+                const issueBody = [
+                    `## Fix Branch Created — Patch Verification In Progress`,
+                    ``,
+                    `| | |`,
+                    `|---|---|`,
+                    `| **Package** | \`${ctx.threat.packageName}\` |`,
+                    `| **Advisory** | [${ctx.threat.ghsaId}](https://github.com/advisories/${ctx.threat.ghsaId}) |`,
+                    `| **Severity** | ${ctx.threat.severity} |`,
+                    `| **Verdict** | ${verdict} |`,
+                    `| **Attack path** | \`${buildAttackPathString(ctx)}\` |`,
+                    `| **Fix branch** | [\`${branch}\`](../../compare/${branch}) |`,
+                    ``,
+                    `---`,
+                    ``,
+                    `### What Happened`,
+                    ``,
+                    `VulTool confirmed this vulnerability as exploitable and generated an automated application-level fix.`,
+                    `The fix has been pushed to [\`${branch}\`](../../compare/${branch}).`,
+                    rescanned
+                        ? `A patch verification rescan has been triggered and will follow up with a confirmed PATCH_CONFIRMED or PATCH_FAILED verdict.`
+                        : `Patch verification rescan was not triggered — review and test the fix branch manually before merging.`,
+                    ``,
+                    `---`,
+                    ``,
+                    `### Exploit Analysis`,
+                    ``,
+                    report,
+                    ``,
+                    `---`,
+                    ``,
+                    `> *Opened automatically by VulTool · [Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})*`,
+                ].join('\n');
+                const issueTitle = `[VulTool] ${ctx.threat.severity} · ${ctx.threat.packageName} (${ctx.threat.ghsaId}) — fix branch created, verification pending`;
+                await createGithubIssue(token, issueTitle, issueBody);
+            }
+            if (fixedTargets.length > 0) {
+                core.info(`  Issues opened for ${fixedTargets.length} exploitable threat(s) with fix branch pending verification`);
+            }
         }
         await saveSeenGhsaIds(token, currentIds);
         // ── THREAT QUEUE ──────────────────────────────────────────────────────────
+        const reachableThreats = sortedThreats.filter(t => exploitContexts.some(c => c.threat.ghsaId === t.ghsaId));
+        const nonReachableThreats = sortedThreats.filter(t => !exploitContexts.some(c => c.threat.ghsaId === t.ghsaId));
         core.info('');
         core.info(LIGHT);
         core.info('  THREAT QUEUE');
         core.info(LIGHT);
         core.info('');
-        for (let i = 0; i < sortedThreats.length; i++) {
-            const t = sortedThreats[i];
+        for (let i = 0; i < reachableThreats.length; i++) {
+            const t = reachableThreats[i];
             const ctx = exploitContexts.find(c => c.threat.ghsaId === t.ghsaId);
             core.info(`  #${i + 1}  ${t.packageName.padEnd(22)} ${t.severity.padEnd(10)} ${t.ghsaId}`);
             core.info(`       ${t.summary}`);
             core.info(`       Vulnerable : ${t.vulnerableVersionRange ?? 'unknown'}   →   Fix: ${t.firstPatchedVersion ?? 'no patch available'}`);
             core.info(`       Risk       : ${t.isDevDependency ? 'Dev dependency' : 'Production'}`);
-            if (ctx) {
-                const guardStr = ctx.guards.guards.length === 0
-                    ? 'none'
-                    : ctx.guards.guards.map(g => g.type).join(', ');
-                const pathLabel = ctx.codeSlice.isIndirect
-                    ? `Indirect path: ${buildAttackPathString(ctx)}  (via ${ctx.codeSlice.viaPackage})`
-                    : `Attack path: ${buildAttackPathString(ctx)}`;
-                core.info(`       ${pathLabel}`);
-                core.info(`       Guards     : ${guardStr}`);
-            }
-            else {
-                core.info(`       Code usage : not reachable — no imports found in source`);
-            }
+            const guardStr = ctx.guards.guards.length === 0
+                ? 'none'
+                : ctx.guards.guards.map(g => g.type).join(', ');
+            const pathLabel = ctx.codeSlice.isIndirect
+                ? `Indirect path: ${buildAttackPathString(ctx)}  (via ${ctx.codeSlice.viaPackage})`
+                : `Attack path: ${buildAttackPathString(ctx)}`;
+            core.info(`       ${pathLabel}`);
+            core.info(`       Guards     : ${guardStr}`);
             core.info('');
+        }
+        if (nonReachableThreats.length > 0) {
+            core.info(LIGHT);
+            core.info('  NOT REACHABLE IN SOURCE');
+            core.info(LIGHT);
+            core.info('');
+            for (const t of nonReachableThreats) {
+                core.info(`  ${t.packageName.padEnd(22)} ${t.severity.padEnd(10)} ${t.ghsaId}`);
+                core.info(`       ${t.summary}`);
+                core.info('');
+            }
         }
         // ── EXPLOIT ANALYSIS ─────────────────────────────────────────────────────
         if (llmReports.size > 0) {
@@ -36144,9 +36197,17 @@ async function main() {
                     const verdict = parseVerdict(llmReports.get(t.ghsaId) ?? '') ?? 'not analyzed';
                     const branch = fixBranches.get(t.ghsaId);
                     const rescanned = rescanTriggered.has(t.ghsaId);
+                    const isActionable = actionableVerdicts.has(verdict);
+                    const wasAttempted = remediationTargets.some(ctx => ctx.threat.ghsaId === t.ghsaId);
+                    const hasReport = remediationReports.has(t.ghsaId);
+                    const verified = verificationResults.get(t.ghsaId);
                     const fixStatus = branch && rescanned ? `${branch} (rescan triggered)`
                         : branch ? branch
-                            : '—';
+                            : verified === false ? 'fix generated — verification failed'
+                                : hasReport ? 'fix generated — branch creation failed'
+                                    : wasAttempted ? 'remediation failed (LLM timeout)'
+                                        : isActionable ? 'remediation skipped — no API key'
+                                            : '—';
                     core.info(`  ${t.packageName.padEnd(28)} ${verdict.padEnd(28)} ${fixStatus}`);
                 }
             }
