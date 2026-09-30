@@ -365,6 +365,7 @@ async function main() {
     const rescanGhsaId      = core.getInput('rescan_ghsa_id') || undefined;
     const includeAdjacentRisks = core.getInput('adjacent_risks') === 'true';
     const createIssue          = core.getInput('create_issue') === 'true';
+    const autoRescan           = core.getInput('auto_rescan') !== 'false';
     core.setSecret(token);
 
     const repoName      = process.env.GITHUB_REPOSITORY ?? 'unknown/unknown';
@@ -373,6 +374,15 @@ async function main() {
     const HEAVY = '━'.repeat(60);
     const LIGHT = '─'.repeat(60);
 
+    const configParts: string[] = [
+      `Threshold: ${threshold}`,
+      `Adjacent risks: ${includeAdjacentRisks ? 'on' : 'off'}`,
+      `Create issue: ${createIssue ? 'on' : 'off'}`,
+      `Mode: ${rescanMode ? 'patch-verification' : 'primary-scan'}`,
+      `Auto rescan: ${autoRescan ? 'on' : 'off'}`,
+    ];
+    if (demoMode) configParts.push('Demo mode');
+
     core.info(HEAVY);
     if (rescanMode) {
       core.info('  PATCH VERIFICATION SCAN');
@@ -380,14 +390,8 @@ async function main() {
     } else {
       core.info('  CTI VULNERABILITY SCANNER');
       core.info(`  ${repoName}`);
-      const configParts: string[] = [
-        `Threshold: ${threshold}`,
-        `Adjacent risks: ${includeAdjacentRisks ? 'on' : 'off'}`,
-        `Create issue: ${createIssue ? 'on' : 'off'}`,
-      ];
-      if (demoMode) configParts.push('Demo mode');
-      core.info(`  ${configParts.join('  |  ')}`);
     }
+    core.info(`  ${configParts.join('  |  ')}`);
     core.info(HEAVY);
     core.info('');
 
@@ -601,11 +605,13 @@ async function main() {
               const branch = createFixBranch(ctx.threat.ghsaId, ctx.threat.packageName, [targetFile], workspacePath);
               fixBranches.set(ctx.threat.ghsaId, branch);
               // Step 5: trigger patch verification re-scan on the fix branch
-              try {
-                await triggerRescan(token, ctx.threat.ghsaId, branch);
-                rescanTriggered.add(ctx.threat.ghsaId);
-              } catch (err) {
-                core.warning(`  Re-scan dispatch failed for ${ctx.threat.ghsaId}: ${err instanceof Error ? err.message : String(err)}`);
+              if (autoRescan) {
+                try {
+                  await triggerRescan(token, ctx.threat.ghsaId, branch);
+                  rescanTriggered.add(ctx.threat.ghsaId);
+                } catch (err) {
+                  core.warning(`  Re-scan dispatch failed for ${ctx.threat.ghsaId}: ${err instanceof Error ? err.message : String(err)}`);
+                }
               }
             } catch (err) {
               revertFile(targetFile, originalContent);
