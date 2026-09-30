@@ -177,29 +177,38 @@ function discordAnalysisComplete(
   let description: string;
   let color: number;
 
+  const timeoutCount = llmFailedIds.size;
+  const timeoutNote  = timeoutCount > 0
+    ? ` ${timeoutCount} threat(s) could not be analyzed (LLM timeout) — a GitHub Issue has been opened for each.`
+    : '';
+
   if (exploitable > 0 && fixedCount > 0 && failedCount > 0) {
     title       = 'Exploit Confirmed — Partial Remediation';
-    description = `${exploitable} exploitable threat(s) confirmed. ${fixedCount} automated fix(es) generated and verified — patch verification rescan triggered. ${failedCount} threat(s) could not be automatically remediated (LLM timeout) — a GitHub Issue has been opened for each finding.`;
+    description = `${exploitable} exploitable threat(s) confirmed. ${fixedCount} automated fix(es) generated and verified — patch verification rescan triggered. ${failedCount} threat(s) could not be automatically remediated (LLM timeout) — a GitHub Issue has been opened for each finding.${timeoutNote}`;
     color       = DC_ORANGE;
   } else if (exploitable > 0 && fixedCount > 0) {
     title       = 'Exploit Confirmed — Automated Fix Generated';
-    description = `${exploitable} exploitable threat(s) confirmed. Automated fix(es) generated and verified — patch verification rescan triggered. A GitHub Issue has been opened for each finding with the full analysis and fix branch link.`;
+    description = `${exploitable} exploitable threat(s) confirmed. Automated fix(es) generated and verified — patch verification rescan triggered. A GitHub Issue has been opened for each finding with the full analysis and fix branch link.${timeoutNote}`;
     color       = DC_ORANGE;
   } else if (exploitable > 0) {
     title       = 'Exploit Confirmed — Manual Remediation Required';
-    description = `${exploitable} exploitable threat(s) confirmed. No automated fix was generated. A GitHub Issue has been opened for each finding with the full analysis.`;
+    description = `${exploitable} exploitable threat(s) confirmed. No automated fix was generated. A GitHub Issue has been opened for each finding with the full analysis.${timeoutNote}`;
     color       = DC_RED;
   } else if (conditional > 0 && fixedCount > 0 && failedCount > 0) {
     title       = 'Conditional Exploit — Partial Remediation';
-    description = `${conditional} conditionally exploitable threat(s) detected. ${fixedCount} automated fix(es) generated and verified — patch verification rescan triggered. ${failedCount} threat(s) could not be automatically remediated — a GitHub Issue has been opened for each finding.`;
+    description = `${conditional} conditionally exploitable threat(s) detected. ${fixedCount} automated fix(es) generated and verified — patch verification rescan triggered. ${failedCount} threat(s) could not be automatically remediated — a GitHub Issue has been opened for each finding.${timeoutNote}`;
     color       = DC_ORANGE;
   } else if (conditional > 0 && fixedCount > 0) {
     title       = 'Conditional Exploit — Automated Fix Generated';
-    description = `${conditional} conditionally exploitable threat(s) detected. Automated fix(es) generated and verified — patch verification rescan triggered. A GitHub Issue has been opened for each finding.`;
+    description = `${conditional} conditionally exploitable threat(s) detected. Automated fix(es) generated and verified — patch verification rescan triggered. A GitHub Issue has been opened for each finding.${timeoutNote}`;
     color       = DC_ORANGE;
   } else if (conditional > 0) {
     title       = 'Conditional Exploit Confirmed';
-    description = `${conditional} conditionally exploitable threat(s) detected. Exploitability depends on runtime configuration or deployment context. A GitHub Issue has been opened for each finding.`;
+    description = `${conditional} conditionally exploitable threat(s) detected. Exploitability depends on runtime configuration or deployment context. A GitHub Issue has been opened for each finding.${timeoutNote}`;
+    color       = DC_ORANGE;
+  } else if (timeoutCount > 0 && exploitable === 0 && conditional === 0) {
+    title       = 'Analysis Incomplete — LLM Timeout';
+    description = `${timeoutCount} reachable threat(s) could not be analyzed — the LLM request timed out. A GitHub Issue has been opened for each. Re-run the pipeline to retry.`;
     color       = DC_ORANGE;
   } else if (refused > 0 && refused === llmReports.size) {
     title       = 'Model Refused Analysis';
@@ -207,7 +216,7 @@ function discordAnalysisComplete(
     color       = DC_ORANGE;
   } else if (notExploitable > 0) {
     title       = 'Threats Analyzed — Not Exploitable';
-    description = `${sortedThreats.length} threat(s) confirmed in the dependency set. Exploit analysis determined none are reachable in the current codebase.`;
+    description = `${sortedThreats.length} threat(s) confirmed in the dependency set. Exploit analysis determined none are reachable in the current codebase.${timeoutNote}`;
     color       = DC_GREEN;
   } else if (exploitContexts.length === 0) {
     title       = 'Threats Detected — Not Reachable in Source';
