@@ -35583,6 +35583,23 @@ function discordRescanComplete(repoName, ghsaId, patchVerdict, packageName) {
 function discordPipelineError(repoName, message) {
     return discordEmbed('Pipeline Error', message, DC_RED, [{ name: 'Repository', value: repoName, inline: true }], repoName);
 }
+function formatReport(raw) {
+    const out = [];
+    for (const line of raw.trim().split('\n')) {
+        // Section header: strip ## and visually separate
+        if (/^#{1,3}\s/.test(line)) {
+            if (out.length > 0)
+                out.push('');
+            const heading = line.replace(/^#{1,3}\s+/, '').toUpperCase();
+            out.push(heading);
+            out.push('─'.repeat(Math.min(heading.length, 52)));
+            continue;
+        }
+        // Strip markdown bold/italic markers
+        out.push(line.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1'));
+    }
+    return out;
+}
 function parseAdjacentRisks(report) {
     if (!report)
         return [];
@@ -36122,7 +36139,7 @@ async function main() {
                     core.info(`      Switch to a security-capable model for full exploit analysis.`);
                 }
                 else {
-                    for (const line of report.split('\n')) {
+                    for (const line of formatReport(report)) {
                         core.info(`  ${line}`);
                     }
                 }
@@ -36141,7 +36158,7 @@ async function main() {
                 core.info(`  CODE FIX  —  ${ctx.threat.packageName}  (${ctx.threat.ghsaId})`);
                 core.info(LIGHT);
                 core.info('');
-                for (const line of fix.split('\n')) {
+                for (const line of formatReport(fix)) {
                     core.info(`  ${line}`);
                 }
                 core.info('');

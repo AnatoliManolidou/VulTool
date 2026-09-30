@@ -308,6 +308,23 @@ function discordPipelineError(repoName: string, message: string): object {
   );
 }
 
+function formatReport(raw: string): string[] {
+  const out: string[] = [];
+  for (const line of raw.trim().split('\n')) {
+    // Section header: strip ## and visually separate
+    if (/^#{1,3}\s/.test(line)) {
+      if (out.length > 0) out.push('');
+      const heading = line.replace(/^#{1,3}\s+/, '').toUpperCase();
+      out.push(heading);
+      out.push('─'.repeat(Math.min(heading.length, 52)));
+      continue;
+    }
+    // Strip markdown bold/italic markers
+    out.push(line.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1'));
+  }
+  return out;
+}
+
 function parseAdjacentRisks(report: string | null | undefined): string[] {
   if (!report) return [];
   const risks: string[] = [];
@@ -882,7 +899,7 @@ async function main() {
           core.info(`  [!] Model refused to analyze this advisory.`);
           core.info(`      Switch to a security-capable model for full exploit analysis.`);
         } else {
-          for (const line of report.split('\n')) {
+          for (const line of formatReport(report)) {
             core.info(`  ${line}`);
           }
         }
@@ -903,7 +920,7 @@ async function main() {
         core.info(`  CODE FIX  —  ${ctx.threat.packageName}  (${ctx.threat.ghsaId})`);
         core.info(LIGHT);
         core.info('');
-        for (const line of fix.split('\n')) {
+        for (const line of formatReport(fix)) {
           core.info(`  ${line}`);
         }
         core.info('');
