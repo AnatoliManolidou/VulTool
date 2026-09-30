@@ -770,6 +770,11 @@ async function main() {
     core.info(LIGHT);
     core.info('');
 
+    if (reachableThreats.length === 0) {
+      core.info('  No threats with confirmed code usage found in this run.');
+      core.info('');
+    }
+
     for (let i = 0; i < reachableThreats.length; i++) {
       const t   = reachableThreats[i];
       const ctx = exploitContexts.find(c => c.threat.ghsaId === t.ghsaId)!;
