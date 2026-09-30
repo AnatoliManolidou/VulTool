@@ -184,7 +184,7 @@ function discordAnalysisComplete(
     color       = DC_GREEN;
   } else if (exploitContexts.length === 0) {
     title       = 'Threats Detected — No Direct Code Usage';
-    description = `${sortedThreats.length} threat(s) confirmed in the dependency set but no direct code usage was found. These represent static risk only.`;
+    description = `${sortedThreats.length} threat(s) confirmed in the dependency set but no reachable code usage was found. The vulnerable packages are installed but not imported in application source.`;
     color       = DC_GREY;
   } else {
     title       = 'Analysis Complete';
@@ -498,7 +498,7 @@ async function main() {
         exploitContexts.push(assembleContext(threat, slice, entryPoint, callChain, guards));
       }
     }
-    core.info(`  [C8] Purple Team            → ${exploitContexts.length > 0 ? `${exploitContexts.length} exploit context(s) assembled` : 'skipped — no package imports found in source'}`);
+    core.info(`  [C8] Purple Team            → ${exploitContexts.length > 0 ? `${exploitContexts.length} exploit context(s) assembled` : 'skipped — no reachable code usage found'}`);
 
     // --- C9: LLM EXPLOIT ANALYZER ---
     const llmReports = new Map<string, string>();
@@ -712,7 +712,7 @@ async function main() {
         core.info(`       ${pathLabel}`);
         core.info(`       Guards     : ${guardStr}`);
       } else {
-        core.info(`       Code usage : not found in source — static risk only`);
+        core.info(`       Code usage : not reachable — no imports found in source`);
       }
 
       core.info('');
@@ -890,17 +890,20 @@ async function main() {
       if (adjacentRisks.length > 0) parts.push(`ADJACENT RISKS: ${adjacentRisks.length}`);
       if (fixBranches.size > 0)     parts.push(`FIX BRANCHES: ${fixBranches.size}`);
       core.info(`  ${parts.join('  |  ')}`);
-      core.info('');
-      for (const t of sortedThreats) {
-        const hasCodeUsage = codeSlices.some(s => s.threatGhsaId === t.ghsaId);
-        const verdict      = parseVerdict(llmReports.get(t.ghsaId) ?? '')
-                           ?? (hasCodeUsage ? 'not analyzed' : 'no code usage');
-        const branch    = fixBranches.get(t.ghsaId);
-        const rescanned = rescanTriggered.has(t.ghsaId);
-        const fixStatus = branch && rescanned ? `fix: ${branch} (rescan triggered)`
-                        : branch              ? `fix: ${branch}`
-                        : '—';
-        core.info(`  ${t.packageName.padEnd(28)} ${verdict.padEnd(28)} ${fixStatus}`);
+      const analyzedThreats = sortedThreats.filter(t => codeSlices.some(s => s.threatGhsaId === t.ghsaId));
+      if (analyzedThreats.length > 0) {
+        core.info('');
+        core.info(`  ${'Package'.padEnd(28)} ${'Verdict'.padEnd(28)} Fix branch`);
+        core.info(`  ${'─'.repeat(28)} ${'─'.repeat(28)} ${'─'.repeat(28)}`);
+        for (const t of analyzedThreats) {
+          const verdict   = parseVerdict(llmReports.get(t.ghsaId) ?? '') ?? 'not analyzed';
+          const branch    = fixBranches.get(t.ghsaId);
+          const rescanned = rescanTriggered.has(t.ghsaId);
+          const fixStatus = branch && rescanned ? `${branch} (rescan triggered)`
+                          : branch              ? branch
+                          : '—';
+          core.info(`  ${t.packageName.padEnd(28)} ${verdict.padEnd(28)} ${fixStatus}`);
+        }
       }
     }
     core.info(HEAVY);
