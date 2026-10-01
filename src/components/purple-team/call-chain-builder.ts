@@ -125,7 +125,7 @@ export async function buildCallChain(
     for (let i = 0; i < levelSize; i++) {
       const current = queue.shift()!;
 
-      let currentDef = defCache.get(current) ?? null;
+      let currentDef = defCache.get(current);
       if (currentDef === undefined) {
         currentDef = findFunctionDef(current, files);
         defCache.set(current, currentDef);

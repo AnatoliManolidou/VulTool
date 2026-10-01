@@ -40,7 +40,7 @@ function classifyAttackClass(threat: Threat): AttackClass {
   // CVSS vector fallback — AV:N/AC:L is a strong signal for network-reachable attacks
   const vector = threat.cvss?.vectorString ?? '';
   if (vector.includes('C:H') && vector.includes('I:H')) return 'rce';
-  if (vector.includes('CWE-89') || threat.summary.toLowerCase().includes('sql injection')) return 'sqli';
+  if (threat.summary.toLowerCase().includes('sql injection')) return 'sqli';
   if (threat.summary.toLowerCase().includes('prototype pollution')) return 'prototype-pollution';
   if (threat.summary.toLowerCase().includes('path traversal'))      return 'path-traversal';
   if (threat.summary.toLowerCase().includes('ssrf'))                return 'ssrf';

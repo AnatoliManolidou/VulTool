@@ -41,7 +41,7 @@ inputs:
     required: false
     default: 'false'
   create_issue:
-    description: 'Open a GitHub Issue for each confirmed exploitable vulnerability with the full exploit analysis report and fix branch link'
+    description: 'Open GitHub Issues for each finding (exploitable, timed-out, fix-pending); on patch verification, also auto-create a pull request when PATCH_CONFIRMED'
     required: false
     default: 'false'
 

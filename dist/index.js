@@ -33354,7 +33354,6 @@ async function analyzeCodeUsage(npmThreats, workspacePath) {
             const source = sourceCaches.get(file);
             parser.setLanguage(jsLanguage);
             const tree = parser.parse(source);
-            const relPath = path.relative(workspacePath, file);
             const bindings = extractImportBindings(tree, threat.packageName);
             if (bindings.size === 0)
                 continue;
@@ -33387,15 +33386,17 @@ async function analyzeCodeUsage(npmThreats, workspacePath) {
                 }
             }
         }
-        results.push({
-            threatGhsaId: threat.ghsaId,
-            packageName: threat.packageName,
-            severity: threat.severity,
-            priorityScore: threat.priorityScore,
-            affectedFiles,
-            eifCallSites,
-            callerSlices,
-        });
+        if (eifCallSites.length > 0) {
+            results.push({
+                threatGhsaId: threat.ghsaId,
+                packageName: threat.packageName,
+                severity: threat.severity,
+                priorityScore: threat.priorityScore,
+                affectedFiles,
+                eifCallSites,
+                callerSlices,
+            });
+        }
     }
     return results;
 }
@@ -34131,7 +34132,7 @@ async function buildCallChain(entryPoint, codeSlice, workspacePath) {
         const levelSize = queue.length;
         for (let i = 0; i < levelSize; i++) {
             const current = queue.shift();
-            let currentDef = defCache.get(current) ?? null;
+            let currentDef = defCache.get(current);
             if (currentDef === undefined) {
                 currentDef = findFunctionDef(current, files);
                 defCache.set(current, currentDef);
@@ -34226,7 +34227,7 @@ function classifyAttackClass(threat) {
     const vector = threat.cvss?.vectorString ?? '';
     if (vector.includes('C:H') && vector.includes('I:H'))
         return 'rce';
-    if (vector.includes('CWE-89') || threat.summary.toLowerCase().includes('sql injection'))
+    if (threat.summary.toLowerCase().includes('sql injection'))
         return 'sqli';
     if (threat.summary.toLowerCase().includes('prototype pollution'))
         return 'prototype-pollution';
@@ -34590,6 +34591,24 @@ function findCronEntryPoint(callerNames, files) {
     return null;
 }
 // ─── Upstream Caller Discovery ────────────────────────────────────────────────
+// Returns the set of function names called directly within a syntax node.
+// Uses AST call_expression nodes instead of text search to avoid false positives
+// from comments, string literals, and substring matches (e.g. "foo" inside "fooBar").
+function calledNamesIn(node) {
+    const names = new Set();
+    for (const call of node.descendantsOfType('call_expression')) {
+        const fn = call.childForFieldName('function');
+        if (fn?.type === 'identifier') {
+            names.add(fn.text);
+        }
+        else if (fn?.type === 'member_expression') {
+            const prop = fn.childForFieldName('property');
+            if (prop)
+                names.add(prop.text);
+        }
+    }
+    return names;
+}
 // Single-pass: returns function names whose body directly calls any name in `targets`.
 function findDirectParents(targets, files) {
     const parents = new Set();
@@ -34611,7 +34630,8 @@ function findDirectParents(targets, files) {
             const fnName = fn.childForFieldName('name')?.text;
             if (!fnName || targets.has(fnName))
                 continue;
-            if ([...targets].some(name => fn.text.includes(name)))
+            const called = calledNamesIn(fn);
+            if ([...targets].some(name => called.has(name)))
                 parents.add(fnName);
         }
         for (const decl of tree.rootNode.descendantsOfType('variable_declarator')) {
@@ -34619,12 +34639,13 @@ function findDirectParents(targets, files) {
             const value = decl.childForFieldName('value');
             if (!id || !value)
                 continue;
-            if (value.type !== 'arrow_function' && value.type !== 'function_expression')
+            if (value.type !== 'arrow_function' && value.type !== 'function_expression' && value.type !== 'function')
                 continue;
             const fnName = id.text;
             if (targets.has(fnName))
                 continue;
-            if ([...targets].some(name => value.text.includes(name)))
+            const called = calledNamesIn(value);
+            if ([...targets].some(name => called.has(name)))
                 parents.add(fnName);
         }
     }
@@ -35462,9 +35483,9 @@ function discordAnalysisComplete(repoName, sortedThreats, exploitContexts, llmRe
     let description;
     let color;
     const timeoutCount = llmFailedIds.size;
-    const issueRef = createIssue ? ' A GitHub Issue has been opened for each finding.' : '';
+    const issueRef = createIssue ? ' GitHub Issues opened for each finding.' : '';
     const timeoutNote = timeoutCount > 0
-        ? ` ${timeoutCount} threat(s) could not be analyzed (LLM timeout).${createIssue ? ' A GitHub Issue has been opened for each.' : ''}`
+        ? ` ${timeoutCount} threat(s) could not be analyzed due to LLM timeout.`
         : '';
     const rescanNote = rescanTriggered.size > 0
         ? 'A patch verification rescan has been triggered.'
@@ -35501,7 +35522,7 @@ function discordAnalysisComplete(repoName, sortedThreats, exploitContexts, llmRe
     }
     else if (timeoutCount > 0 && exploitable === 0 && conditional === 0) {
         title = 'Analysis Incomplete — LLM Timeout';
-        description = `${timeoutCount} reachable threat(s) could not be analyzed — the LLM request timed out.${createIssue ? ' A GitHub Issue has been opened for each.' : ''} Re-run the pipeline to retry.`;
+        description = `${timeoutCount} reachable threat(s) could not be analyzed — the LLM request timed out.${createIssue ? ' GitHub Issues opened for each.' : ''} Re-run the pipeline to retry.`;
         color = DC_ORANGE;
     }
     else if (refused > 0 && refused === llmReports.size) {
@@ -35571,16 +35592,15 @@ function discordAnalysisComplete(repoName, sortedThreats, exploitContexts, llmRe
     return discordEmbed(title, description, color, fields, repoName);
 }
 function discordRescanComplete(repoName, ghsaId, patchVerdict, packageName, createIssue) {
-    const issueRef = createIssue ? ' A GitHub Issue has been opened with the full results.' : '';
     const configs = {
         PATCH_CONFIRMED: {
             title: 'Patch Verified — Vulnerability No Longer Reachable',
-            description: `The automated fix was applied and the rescan confirmed the vulnerability is no longer reachable in the patched code.${issueRef}`,
+            description: `The automated fix was applied and the rescan confirmed the vulnerability is no longer reachable in the patched code.${createIssue ? ' A GitHub Issue has been opened — review and merge the fix branch.' : ''}`,
             color: DC_GREEN,
         },
         PATCH_FAILED: {
             title: 'Patch Failed — Vulnerability Still Reachable',
-            description: `The automated fix was applied but the rescan determined the vulnerability remains exploitable in the patched code. Manual remediation is required.${issueRef}`,
+            description: `The automated fix was applied but the rescan determined the vulnerability remains exploitable in the patched code.${createIssue ? ' A GitHub Issue has been opened — manual remediation is required.' : ' Manual remediation is required.'}`,
             color: DC_RED,
         },
         PATCH_INCONCLUSIVE: {
@@ -35601,9 +35621,17 @@ function discordPipelineError(repoName, message) {
 }
 function formatReport(raw) {
     const out = [];
+    let inCode = false;
     for (const line of raw.trim().split('\n')) {
-        // Section header: strip ## and visually separate
-        if (/^#{1,3}\s/.test(line)) {
+        if (/^```/.test(line)) {
+            if (!inCode && out.length > 0 && out[out.length - 1] !== '')
+                out.push('');
+            if (inCode)
+                out.push('');
+            inCode = !inCode;
+            continue;
+        }
+        if (/^#{1,3}\s/.test(line) && !inCode) {
             if (out.length > 0)
                 out.push('');
             const heading = line.replace(/^#{1,3}\s+/, '').toUpperCase();
@@ -35611,9 +35639,14 @@ function formatReport(raw) {
             out.push('─'.repeat(Math.min(heading.length, 52)));
             continue;
         }
-        // Strip markdown bold/italic markers
-        out.push(line.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1'));
+        const processed = line
+            .replace(/\*\*([^*]+)\*\*/g, '$1')
+            .replace(/\*([^*]+)\*/g, '$1')
+            .replace(/`([^`]+)`/g, '$1');
+        out.push(processed);
     }
+    while (out.length > 0 && out[out.length - 1] === '')
+        out.pop();
     return out;
 }
 function parseAdjacentRisks(report) {
@@ -35681,7 +35714,7 @@ async function closePendingVerificationIssue(token, ghsaId, verdict) {
             return;
         }
         const comment = verdict === 'PATCH_CONFIRMED'
-            ? `Patch verified. Rescan confirmed the vulnerability is no longer reachable. A new issue has been opened with merge instructions.`
+            ? `Patch verified. Rescan confirmed the vulnerability is no longer reachable. A pull request and tracking issue have been opened — review and merge when ready.`
             : `Patch failed. Rescan found the vulnerability is still exploitable after the automated fix. A new issue has been opened with the rescan analysis and next steps.`;
         await octokit.rest.issues.createComment({ owner, repo, issue_number: pending.number, body: comment });
         await octokit.rest.issues.update({
@@ -35709,6 +35742,18 @@ async function createGithubIssue(token, title, body) {
         catch (err) {
             core.warning(`Failed to create GitHub Issue: ${err instanceof Error ? err.message : String(err)}`);
         }
+    }
+}
+async function createGithubPR(token, title, body, head, base) {
+    const octokit = github.getOctokit(token);
+    const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
+    try {
+        const { data } = await octokit.rest.pulls.create({ owner, repo, title, body, head, base });
+        return data.html_url;
+    }
+    catch (err) {
+        core.warning(`Failed to create pull request: ${err instanceof Error ? err.message : String(err)}`);
+        return '';
     }
 }
 async function triggerRescan(token, ghsaId, fixBranch, createIssue) {
@@ -36159,10 +36204,10 @@ async function main() {
             const guardStr = ctx.guards.guards.length === 0
                 ? 'none'
                 : ctx.guards.guards.map(g => g.type).join(', ');
-            const pathLabel = ctx.codeSlice.isIndirect
-                ? `Indirect path: ${buildAttackPathString(ctx)}  (via ${ctx.codeSlice.viaPackage})`
-                : `Attack path: ${buildAttackPathString(ctx)}`;
-            core.info(`       ${pathLabel}`);
+            const pathValue = ctx.codeSlice.isIndirect
+                ? `${buildAttackPathString(ctx)}  (indirect via ${ctx.codeSlice.viaPackage})`
+                : buildAttackPathString(ctx);
+            core.info(`       Path       : ${pathValue}`);
             core.info(`       Guards     : ${guardStr}`);
             core.info('');
         }
@@ -36262,13 +36307,31 @@ async function main() {
                     ? `PATCH_FAILED — vulnerability still reachable after fix`
                     : `PATCH_INCONCLUSIVE — no exploit verdict produced`;
             core.info(`  ${rescanGhsaId} → ${patchVerdict}`);
-            // PATCH_CONFIRMED — fix is verified; open an issue so the team knows to review and merge
+            // PATCH_CONFIRMED — fix is verified; open a PR and an issue tracking it
             if (createIssue && notExploitable > 0 && exploitContexts.length > 0) {
                 const runUrl = `https://github.com/${repoName}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`;
                 const ctx = exploitContexts[0];
                 const fixBranch = `vultool/fix-${rescanGhsaId?.toLowerCase() ?? ''}`;
+                const baseBranch = process.env.GITHUB_REF_NAME ?? 'main';
+                const prBody = [
+                    `## VulTool — Automated Security Fix`,
+                    ``,
+                    `| | |`,
+                    `|---|---|`,
+                    `| **Package** | \`${ctx.threat.packageName}\` |`,
+                    `| **Advisory** | [${rescanGhsaId}](https://github.com/advisories/${rescanGhsaId}) |`,
+                    `| **Severity** | ${ctx.threat.severity} |`,
+                    `| **Patch verdict** | PATCH_CONFIRMED ✓ |`,
+                    ``,
+                    `This fix was generated by VulTool and independently verified by patch verification rescan.`,
+                    `The vulnerability is no longer reachable in the patched code.`,
+                    ``,
+                    `> *Opened automatically by VulTool · [Verification run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})*`,
+                ].join('\n');
+                const prTitle = `fix(security): address ${rescanGhsaId} in ${ctx.threat.packageName} — VulTool verified patch`;
+                const prUrl = await createGithubPR(token, prTitle, prBody, fixBranch, baseBranch);
                 const issueBody = [
-                    `## Automated Fix Verified — Ready to Review and Merge`,
+                    `## Automated Fix Verified — Pull Request Opened`,
                     ``,
                     `| | |`,
                     `|---|---|`,
@@ -36277,6 +36340,7 @@ async function main() {
                     `| **Severity** | ${ctx.threat.severity} |`,
                     `| **Patch verdict** | PATCH_CONFIRMED ✓ |`,
                     `| **Fix branch** | [\`${fixBranch}\`](../../tree/${fixBranch}) |`,
+                    prUrl ? `| **Pull request** | ${prUrl} |` : '',
                     ``,
                     `---`,
                     ``,
@@ -36284,20 +36348,17 @@ async function main() {
                     ``,
                     `VulTool detected this vulnerability as exploitable, generated an application-level fix,`,
                     `and confirmed via independent rescan that the patched code is no longer reachable.`,
-                    ``,
-                    `### Next Steps`,
-                    ``,
-                    `1. Review the changes on [\`${fixBranch}\`](../../compare/${fixBranch})`,
-                    `2. Open a pull request and merge after approval`,
-                    `3. Close this issue once merged`,
+                    prUrl ? `A pull request has been opened automatically — review, approve, and merge to close this issue.` : `Branch \`${fixBranch}\` is ready — open a pull request to merge.`,
                     ``,
                     `---`,
                     ``,
                     `> *Opened automatically by VulTool (patch verification scan) · [Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})*`,
-                ].join('\n');
+                ].filter(l => l !== '').join('\n');
                 const issueTitle = `[VulTool] PATCH CONFIRMED · ${ctx.threat.packageName} (${rescanGhsaId}) — fix ready to merge`;
                 await createGithubIssue(token, issueTitle, issueBody);
                 core.info(`  Issue opened for verified fix on ${rescanGhsaId}`);
+                if (prUrl)
+                    core.info(`  Pull request opened: ${prUrl}`);
             }
             // PATCH_FAILED — open an issue because the automated fix was insufficient
             if (createIssue && exploitable > 0 && exploitContexts.length > 0) {
@@ -36406,8 +36467,15 @@ async function main() {
                     repo: process.env.GITHUB_REPOSITORY ?? 'unknown',
                     runId: process.env.GITHUB_RUN_ID ?? 'unknown',
                     ghsaId: rescanGhsaId ?? null,
+                    packageName: sortedThreats.find(t => t.ghsaId === rescanGhsaId)?.packageName
+                        ?? exploitContexts[0]?.threat.packageName
+                        ?? null,
+                    severity: sortedThreats.find(t => t.ghsaId === rescanGhsaId)?.severity
+                        ?? exploitContexts[0]?.threat.severity
+                        ?? null,
                     patchVerdict: notExploitable > 0 ? 'PATCH_CONFIRMED'
                         : exploitable > 0 ? 'PATCH_FAILED' : 'PATCH_INCONCLUSIVE',
+                    llmTimedOut: llmFailedIds.size > 0,
                 }
                 : {
                     mode: 'main',
@@ -36419,7 +36487,10 @@ async function main() {
                         ghsaId: t.ghsaId,
                         severity: t.severity,
                         hasDirectUsage: codeSlices.some(s => s.threatGhsaId === t.ghsaId),
+                        hasExploitContext: exploitContexts.some(ctx => ctx.threat.ghsaId === t.ghsaId),
+                        entryPointType: exploitContexts.find(ctx => ctx.threat.ghsaId === t.ghsaId)?.entryPoint?.type ?? null,
                         analyzedByLLM: llmReports.has(t.ghsaId),
+                        llmTimedOut: llmFailedIds.has(t.ghsaId),
                         verdict: parseVerdict(llmReports.get(t.ghsaId) ?? '') ?? null,
                         patchAttempted: verificationResults.has(t.ghsaId),
                         patchConfirmed: verificationResults.get(t.ghsaId) ?? null,
@@ -36436,7 +36507,9 @@ async function main() {
             if (rescanMode) {
                 const patchVerdict = notExploitable > 0 ? 'PATCH_CONFIRMED'
                     : exploitable > 0 ? 'PATCH_FAILED' : 'PATCH_INCONCLUSIVE';
-                const pkgName = exploitContexts[0]?.threat.packageName ?? rescanGhsaId ?? '';
+                const pkgName = exploitContexts[0]?.threat.packageName
+                    ?? sortedThreats.find(t => t.ghsaId === rescanGhsaId)?.packageName
+                    ?? '';
                 await sendDiscordNotification(discordWebhook, discordRescanComplete(repoName, rescanGhsaId ?? '', patchVerdict, pkgName, createIssue));
             }
             else {

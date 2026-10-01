@@ -390,7 +390,6 @@ export async function analyzeCodeUsage(
       const source = sourceCaches.get(file)!;
       parser.setLanguage(jsLanguage);
       const tree = parser.parse(source);
-      const relPath = path.relative(workspacePath, file);
 
       const bindings = extractImportBindings(tree, threat.packageName);
       if (bindings.size === 0) continue;
@@ -424,15 +423,17 @@ export async function analyzeCodeUsage(
       }
     }
 
-    results.push({
-      threatGhsaId:  threat.ghsaId,
-      packageName:   threat.packageName,
-      severity:      threat.severity,
-      priorityScore: threat.priorityScore,
-      affectedFiles,
-      eifCallSites,
-      callerSlices,
-    });
+    if (eifCallSites.length > 0) {
+      results.push({
+        threatGhsaId:  threat.ghsaId,
+        packageName:   threat.packageName,
+        severity:      threat.severity,
+        priorityScore: threat.priorityScore,
+        affectedFiles,
+        eifCallSites,
+        callerSlices,
+      });
+    }
   }
 
   return results;

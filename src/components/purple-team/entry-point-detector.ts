@@ -289,6 +289,23 @@ function findCronEntryPoint(
 
 // ─── Upstream Caller Discovery ────────────────────────────────────────────────
 
+// Returns the set of function names called directly within a syntax node.
+// Uses AST call_expression nodes instead of text search to avoid false positives
+// from comments, string literals, and substring matches (e.g. "foo" inside "fooBar").
+function calledNamesIn(node: Parser.SyntaxNode): Set<string> {
+  const names = new Set<string>();
+  for (const call of node.descendantsOfType('call_expression')) {
+    const fn = call.childForFieldName('function');
+    if (fn?.type === 'identifier') {
+      names.add(fn.text);
+    } else if (fn?.type === 'member_expression') {
+      const prop = fn.childForFieldName('property');
+      if (prop) names.add(prop.text);
+    }
+  }
+  return names;
+}
+
 // Single-pass: returns function names whose body directly calls any name in `targets`.
 function findDirectParents(targets: Set<string>, files: string[]): Set<string> {
   const parents = new Set<string>();
@@ -305,17 +322,19 @@ function findDirectParents(targets: Set<string>, files: string[]): Set<string> {
     for (const fn of tree.rootNode.descendantsOfType('function_declaration')) {
       const fnName = fn.childForFieldName('name')?.text;
       if (!fnName || targets.has(fnName)) continue;
-      if ([...targets].some(name => fn.text.includes(name))) parents.add(fnName);
+      const called = calledNamesIn(fn);
+      if ([...targets].some(name => called.has(name))) parents.add(fnName);
     }
 
     for (const decl of tree.rootNode.descendantsOfType('variable_declarator')) {
       const id    = decl.childForFieldName('name');
       const value = decl.childForFieldName('value');
       if (!id || !value) continue;
-      if (value.type !== 'arrow_function' && value.type !== 'function_expression') continue;
+      if (value.type !== 'arrow_function' && value.type !== 'function_expression' && value.type !== 'function') continue;
       const fnName = id.text;
       if (targets.has(fnName)) continue;
-      if ([...targets].some(name => value.text.includes(name))) parents.add(fnName);
+      const called = calledNamesIn(value);
+      if ([...targets].some(name => called.has(name))) parents.add(fnName);
     }
   }
 
