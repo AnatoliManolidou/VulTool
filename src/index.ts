@@ -458,6 +458,12 @@ async function createGithubPR(token: string, title: string, body: string, head: 
   const octokit = github.getOctokit(token);
   const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
   try {
+    // Return the existing PR URL if one already exists for this head branch
+    const existing = await octokit.rest.pulls.list({ owner, repo, head: `${owner}:${head}`, base, state: 'open' });
+    if (existing.data.length > 0) {
+      core.info(`  Pull request already exists: ${existing.data[0].html_url}`);
+      return existing.data[0].html_url;
+    }
     const { data } = await octokit.rest.pulls.create({ owner, repo, title, body, head, base });
     return data.html_url;
   } catch (err) {
