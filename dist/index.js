@@ -34982,7 +34982,12 @@ Produce a vulnerability reachability report with exactly these sections:
 
 ## Precondition Verification
 List each specific condition the advisory states must hold for this vulnerability to be exploitable (e.g. a certain option must be passed, attacker-controlled data must reach a specific parameter, a particular API must be called in a specific way). For each precondition, state in one sentence whether it is satisfied by the code shown above and why.
-A vulnerability is EXPLOITABLE only if every precondition is met by the actual code — not merely by the library in theory.
+
+Two important considerations before drawing conclusions:
+1. Advisory descriptions often describe one specific reported attack vector (e.g. a framework-specific path), not all possible attack surfaces for the vulnerability. Consider whether the underlying vulnerability mechanism could be triggered through the code path shown, even if it differs from the exact path the advisory describes.
+2. Options or behaviors mentioned in advisories sometimes reflect the patched defaults — meaning the dangerous behavior was the default in vulnerable versions and the fix made it opt-out. Do not conclude NOT_EXPLOITABLE solely because no explicit unsafe option is passed.
+
+A vulnerability is EXPLOITABLE only if the underlying vulnerability mechanism is reachable in the code shown — not merely because the advisory's specific described vector is present.
 
 ## Reachability Assessment
 In 2–3 sentences: is this vulnerability reachable and triggerable in this specific codebase given the code path and guards above? Reference the actual route and input surface. Be direct — do not repeat the advisory summary.
