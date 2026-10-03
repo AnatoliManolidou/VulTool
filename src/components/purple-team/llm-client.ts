@@ -1,4 +1,4 @@
-const LLM_TIMEOUT_MS     = 180_000;
+const LLM_TIMEOUT_MS     = 300_000;
 const LLM_RETRY_DELAY_MS =  30_000;
 const LLM_MAX_RETRIES    = 2;
 
