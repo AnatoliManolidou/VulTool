@@ -154,6 +154,29 @@ function extractImportBindings(tree: Parser.Tree, packageName: string): Set<stri
   return bindings;
 }
 
+// One-level derived-binding propagation: if application code assigns the result of
+// a direct binding call to a variable (e.g. `const upload = multer({...})`), that
+// variable is itself a handle into the vulnerable library — its method calls
+// (e.g. `upload.any()`) are EIFs and must be included in the context sent to C9.
+function extractDerivedBindings(tree: Parser.Tree, directBindings: Set<string>): Set<string> {
+  const derived = new Set<string>();
+  for (const decl of tree.rootNode.descendantsOfType('variable_declarator')) {
+    const nameNode  = decl.childForFieldName('name');
+    const valueNode = decl.childForFieldName('value');
+    if (!nameNode || !valueNode || nameNode.type !== 'identifier') continue;
+    const isCallOrNew = valueNode.type === 'call_expression' || valueNode.type === 'new_expression';
+    if (!isCallOrNew) continue;
+    const callee = valueNode.childForFieldName('function') ?? valueNode.childForFieldName('constructor');
+    if (!callee) continue;
+    const rootId =
+      callee.type === 'identifier'        ? callee.text :
+      callee.type === 'member_expression' ? callee.childForFieldName('object')?.text :
+      undefined;
+    if (rootId && directBindings.has(rootId)) derived.add(nameNode.text);
+  }
+  return derived;
+}
+
 function findEIFNodes(tree: Parser.Tree, bindings: Set<string>): Parser.SyntaxNode[] {
   const nodes: Parser.SyntaxNode[] = [];
 
@@ -301,8 +324,9 @@ function findIndirectUsage(
       parser.setLanguage(jsLanguage);
       const tree = parser.parse(source);
 
-      const bindings = extractImportBindings(tree, consumer);
-      if (bindings.size === 0) continue;
+      const directBindings = extractImportBindings(tree, consumer);
+      if (directBindings.size === 0) continue;
+      const bindings = new Set([...directBindings, ...extractDerivedBindings(tree, directBindings)]);
 
       const eifNodes = findEIFNodes(tree, bindings);
 
@@ -391,8 +415,9 @@ export async function analyzeCodeUsage(
       parser.setLanguage(jsLanguage);
       const tree = parser.parse(source);
 
-      const bindings = extractImportBindings(tree, threat.packageName);
-      if (bindings.size === 0) continue;
+      const directBindings = extractImportBindings(tree, threat.packageName);
+      if (directBindings.size === 0) continue;
+      const bindings = new Set([...directBindings, ...extractDerivedBindings(tree, directBindings)]);
 
       const eifNodes = findEIFNodes(tree, bindings);
 
