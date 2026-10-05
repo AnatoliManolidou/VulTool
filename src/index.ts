@@ -425,8 +425,8 @@ async function closePendingVerificationIssue(
       return;
     }
     const comment = verdict === 'PATCH_CONFIRMED'
-      ? `Patch verified. Rescan confirmed the vulnerability is no longer reachable. A pull request and tracking issue have been opened — review and merge when ready.`
-      : `Patch failed. Rescan found the vulnerability is still exploitable after the automated fix. A new issue has been opened with the rescan analysis and next steps.`;
+      ? `Patch verified. Rescan confirmed the vulnerability is no longer reachable. A pull request is open — review and merge when ready.`
+      : `Patch failed. Rescan found the vulnerability is still exploitable after the automated fix. See the latest analysis for next steps.`;
     await octokit.rest.issues.createComment({ owner, repo, issue_number: pending.number, body: comment });
     await octokit.rest.issues.update({
       owner, repo,
@@ -452,6 +452,49 @@ async function createGithubIssue(token: string, title: string, body: string): Pr
       core.warning(`Failed to create GitHub Issue: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+}
+
+async function findOpenIssueForGhsa(token: string, ghsaId: string): Promise<{ number: number } | null> {
+  try {
+    const octokit = github.getOctokit(token);
+    const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
+    const { data: issues } = await octokit.rest.issues.listForRepo({ owner, repo, state: 'open', per_page: 100 });
+    const match = issues.find(i => i.title.includes('[VulTool]') && i.title.includes(ghsaId));
+    return match ? { number: match.number } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function commentOnIssue(token: string, issueNumber: number, body: string): Promise<void> {
+  try {
+    const octokit = github.getOctokit(token);
+    const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
+    await octokit.rest.issues.createComment({ owner, repo, issue_number: issueNumber, body });
+  } catch (err) {
+    core.warning(`Failed to comment on issue #${issueNumber}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+// Opens a new tracking issue for ghsaId, or — if a [VulTool] issue for this GHSA is
+// already open — posts updateNote as a comment instead. Keeps at most one open issue
+// per GHSA so a recurring finding (e.g. a guaranteed-sample package already fixed and
+// awaiting merge in a prior run) doesn't accumulate orphaned duplicate issues with no
+// follow-up once its branch/PR already exists.
+async function createOrUpdateGithubIssue(
+  token: string,
+  ghsaId: string,
+  title: string,
+  body: string,
+  updateNote: string,
+): Promise<void> {
+  const existing = await findOpenIssueForGhsa(token, ghsaId);
+  if (existing) {
+    await commentOnIssue(token, existing.number, updateNote);
+    core.info(`  Existing issue #${existing.number} updated for ${ghsaId} — skipped duplicate creation`);
+    return;
+  }
+  await createGithubIssue(token, title, body);
 }
 
 async function createGithubPR(token: string, title: string, body: string, head: string, base: string): Promise<string> {
@@ -818,7 +861,8 @@ async function main() {
         ].join('\n');
 
         const issueTitle = `[VulTool] ${ctx.threat.severity} · ${ctx.threat.packageName} (${ctx.threat.ghsaId}) confirmed exploitable`;
-        await createGithubIssue(token, issueTitle, issueBody);
+        const updateNote = `VulTool re-confirmed this vulnerability as exploitable in a later run; still no automated fix was generated. See [Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl}) for the latest analysis.`;
+        await createOrUpdateGithubIssue(token, ctx.threat.ghsaId, issueTitle, issueBody, updateNote);
       }
       if (unfixedTargets.length > 0) {
         core.info(`  Issues opened for ${unfixedTargets.length} exploitable threat(s) without automated fix`);
@@ -867,7 +911,8 @@ async function main() {
         ].join('\n');
 
         const issueTitle = `[VulTool] ${ctx.threat.severity} · ${ctx.threat.packageName} (${ctx.threat.ghsaId}) — fix branch created, verification pending`;
-        await createGithubIssue(token, issueTitle, issueBody);
+        const updateNote = `VulTool re-confirmed this vulnerability in a later run and refreshed \`${branch}\` with a new fix.${rescanned ? ` A new patch verification rescan has been triggered.` : ` Patch verification rescan was not triggered this time — review the branch manually.`} See [Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl}).`;
+        await createOrUpdateGithubIssue(token, ctx.threat.ghsaId, issueTitle, issueBody, updateNote);
       }
       if (fixedTargets.length > 0) {
         core.info(`  Issues opened for ${fixedTargets.length} exploitable threat(s) with fix branch pending verification`);
@@ -906,7 +951,8 @@ async function main() {
         ].join('\n');
 
         const issueTitle = `[VulTool] ${ctx.threat.severity} · ${ctx.threat.packageName} (${ctx.threat.ghsaId}) — analysis incomplete (LLM timeout)`;
-        await createGithubIssue(token, issueTitle, issueBody);
+        const updateNote = `LLM analysis timed out again in a later run ([Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})). Code usage remains confirmed; exploitability still undetermined.`;
+        await createOrUpdateGithubIssue(token, ctx.threat.ghsaId, issueTitle, issueBody, updateNote);
       }
       if (analysisTimedOut.length > 0) {
         core.info(`  Issues opened for ${analysisTimedOut.length} reachable threat(s) with incomplete LLM analysis`);
@@ -1100,9 +1146,10 @@ async function main() {
         ].filter(l => l !== '').join('\n');
 
         const issueTitle = `[VulTool] PATCH CONFIRMED · ${ctx.threat.packageName} (${rescanGhsaId}) — fix ready to merge`;
-        await createGithubIssue(token, issueTitle, issueBody);
-        core.info(`  Issue opened for verified fix on ${rescanGhsaId}`);
-        if (prUrl) core.info(`  Pull request opened: ${prUrl}`);
+        const updateNote = `Patch verification rescan confirmed this fix again in a later cycle ([Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})).${prUrl ? ` Pull request: ${prUrl}` : ''}`;
+        await createOrUpdateGithubIssue(token, rescanGhsaId ?? '', issueTitle, issueBody, updateNote);
+        core.info(`  Issue opened/updated for verified fix on ${rescanGhsaId}`);
+        if (prUrl) core.info(`  Pull request: ${prUrl}`);
       }
 
       // PATCH_FAILED — open an issue because the automated fix was insufficient
@@ -1143,8 +1190,9 @@ async function main() {
         ].join('\n');
 
         const issueTitle = `[VulTool] PATCH FAILED · ${ctx.threat.packageName} (${rescanGhsaId}) — vulnerability still reachable after automated fix`;
-        await createGithubIssue(token, issueTitle, issueBody);
-        core.info(`  Issue opened for patch failure on ${rescanGhsaId}`);
+        const updateNote = `Patch verification rescan found the vulnerability still reachable again in a later cycle ([Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})).`;
+        await createOrUpdateGithubIssue(token, rescanGhsaId ?? '', issueTitle, issueBody, updateNote);
+        core.info(`  Issue opened/updated for patch failure on ${rescanGhsaId}`);
       }
 
       // Close the original "verification pending" issue — rescan has produced a definitive result

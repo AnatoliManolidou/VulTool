@@ -32911,60 +32911,30 @@ function mapFeedNode(v) {
         ecosystem: v.package.ecosystem.toLowerCase(),
     };
 }
-// GHSAs confirmed exploitable in the Dummy test environment (GT = True).
-// Used to build the "guaranteed" portion of every demo sample.
-const EXPLOITABLE_GHSAS = new Set([
-    'GHSA-f2jv-r9rf-7988', // handlebars
-    'GHSA-phwq-j96m-2c2q', // ejs
-    'GHSA-36jr-mh4h-2g58', // d3-color
-    'GHSA-hjrf-2m68-5959', // jsonwebtoken
-    'GHSA-wc9g-mqfw-jrwm', // multer
-    'GHSA-535w-7cp7-47q4', // multer (second advisory)
-    'GHSA-qfvm-cv95-jqjf', // multer (third advisory)
-    'GHSA-2x7j-588g-ccc2', // nodemailer
-    'GHSA-wmmp-3585-3rmp', // nodemailer (second)
-    'GHSA-cc9r-2j5m-2m83', // nodemailer (third)
-    'GHSA-2883-xcg3-v3hh', // js-yaml
-    'GHSA-rgj7-g3m4-5g8c', // sharp
-    'GHSA-7w5x-hrqm-74c2', // smol-toml
-    'GHSA-j95f-988m-3j2f', // @tiptap/core
-    'GHSA-jxfw-x594-9x9m', // morgan
-    'GHSA-pfrx-2q88-qq97', // got
-    'GHSA-9c47-m6qq-7p4h', // json5
-    'GHSA-x5rq-j2xg-h7qm', // lodash
-    'GHSA-72xf-g2v4-qvf3', // tough-cookie
-    'GHSA-cf4h-3jhx-xvhq', // underscore
-]);
-// Package names installed in Dummy at a vulnerable version with direct source usage.
-// Paired with EXPLOITABLE_GHSAS to exclude variant entries (lodash-rails, org.webjars,
-// got >= 12.x, json5 < 1.0.2) that share the same GHSA but don't match the installed pkg.
-const INSTALLED_EXPLOITABLE_PACKAGES = new Set([
-    'd3-color', 'handlebars', 'ejs', 'jsonwebtoken', 'lodash', 'tough-cookie',
-    'underscore', 'got', 'json5', 'multer', 'nodemailer', 'js-yaml',
-    'morgan', 'smol-toml', 'sharp', '@tiptap/core',
-]);
-// Package names whose feed entries will always be rejected by C4 in the Dummy repo
-// (not installed, or installed at a version outside every advisory range).
-// These are safe filler: they add sample cardinality without triggering C7/C8/C9.
-const FILLER_PACKAGES = new Set([
-    'ansi-regex', // transitive @6.2.2 — outside all 3.x/4.x/5.x/6.0.x ranges
-    'Moment.js', // not installed (dep is 'moment', not 'Moment.js')
-    'moment', // 2.29.3 installed — outside < 2.29.2
-    'lodash-rails', // not installed
-    'lodash-amd', // not installed
-    'lodash-es', // not installed
-    'lodash.updatewith', // not installed
-    'lodash.update', // not installed
-    'lodash.setwith', // not installed
-    'lodash.set', // not installed
-    'minimist', // transitive @1.2.8 — outside < 0.2.4 and < 1.2.6
-    'decode-uri-component', // not installed
-    'follow-redirects', // transitive @1.16.0 — outside <= 1.15.5 and < 1.15.4
-    'cross-spawn', // transitive @7.0.6 — outside < 6.0.6 and >= 7.0.0, < 7.0.5
-    'serialize-javascript', // 3.0.0 installed — outside < 2.1.1
-    'astro', // not installed
-    'omniroute', // not installed
-]);
+const REACHABLE_ENTRIES = [
+    { ghsaId: 'GHSA-36jr-mh4h-2g58', packageName: 'd3-color', range: '>= 1.0.2, < 3.1.0' },
+    { ghsaId: 'GHSA-f2jv-r9rf-7988', packageName: 'handlebars', range: '< 4.7.7' },
+    { ghsaId: 'GHSA-phwq-j96m-2c2q', packageName: 'ejs', range: '< 3.1.7' },
+    { ghsaId: 'GHSA-hjrf-2m68-5959', packageName: 'jsonwebtoken', range: '<= 8.5.1' },
+    { ghsaId: 'GHSA-wc9g-mqfw-jrwm', packageName: 'multer', range: '>= 1.4.4-lts.1, < 2.3.0' },
+    { ghsaId: 'GHSA-535w-7cp7-47q4', packageName: 'multer', range: '>= 1.4.4-lts.1, < 2.3.0' },
+    { ghsaId: 'GHSA-qfvm-cv95-jqjf', packageName: 'multer', range: '= 2.2.0' },
+    { ghsaId: 'GHSA-2x7j-588g-ccc2', packageName: 'nodemailer', range: '< 9.1.0' },
+    { ghsaId: 'GHSA-wmmp-3585-3rmp', packageName: 'nodemailer', range: '< 9.1.0' },
+    { ghsaId: 'GHSA-cc9r-2j5m-2m83', packageName: 'nodemailer', range: '>= 6.9.16, < 9.1.0' },
+    { ghsaId: 'GHSA-2883-xcg3-v3hh', packageName: 'js-yaml', range: '>= 4.0.0, < 4.3.2' },
+    { ghsaId: 'GHSA-jxfw-x594-9x9m', packageName: 'morgan', range: '< 1.12.0' },
+    { ghsaId: 'GHSA-7w5x-hrqm-74c2', packageName: 'smol-toml', range: '<= 1.7.0' },
+    { ghsaId: 'GHSA-rgj7-g3m4-5g8c', packageName: 'sharp', range: '< 0.35.4' },
+    { ghsaId: 'GHSA-j95f-988m-3j2f', packageName: '@tiptap/core', range: '>= 3.7.0, < 3.30.5' },
+    { ghsaId: 'GHSA-pfrx-2q88-qq97', packageName: 'got', range: '< 11.8.5' },
+    { ghsaId: 'GHSA-9c47-m6qq-7p4h', packageName: 'json5', range: '>= 2.0.0, < 2.2.2' },
+    { ghsaId: 'GHSA-x5rq-j2xg-h7qm', packageName: 'lodash', range: '>= 4.7.0, < 4.17.11' },
+    { ghsaId: 'GHSA-72xf-g2v4-qvf3', packageName: 'tough-cookie', range: '< 4.1.3' },
+    { ghsaId: 'GHSA-cf4h-3jhx-xvhq', packageName: 'underscore', range: '>= 1.3.2, < 1.12.1' },
+    { ghsaId: 'GHSA-r683-j2x4-v87g', packageName: 'node-fetch', range: '< 2.6.7' }, // reachable, GT = NOT_EXPLOITABLE
+];
+const REACHABLE_GHSA_IDS = new Set(REACHABLE_ENTRIES.map(e => e.ghsaId));
 function fisherYates(arr) {
     for (let i = arr.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -32973,8 +32943,10 @@ function fisherYates(arr) {
 }
 // Loads the bundled advisory-feed.json. In rescan mode returns only the entry
 // matching ghsaIdFilter; otherwise returns a stratified sample:
-//   • exactly 2 distinct-GHSA entries from the exploitable pool (guaranteed C7/C8/C9 candidates)
-//   • (sampleSize - 2) entries from the filler pool (guaranteed C4 rejects — no LLM analysis)
+//   • exactly 2 distinct-GHSA entries drawn from REACHABLE_ENTRIES (guaranteed to reach C9)
+//   • (sampleSize - 2) filler entries — any feed entry whose GHSA is not in the reachable
+//     pool, which is therefore guaranteed to be rejected by C4 (not installed / out of
+//     range) or confirmed-but-unreachable by C7 (no source usage, e.g. semver, hono)
 function fetchDemoAdvisories(sampleSize, ghsaIdFilter) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const nodes = __nccwpck_require__(1020);
@@ -32983,15 +32955,20 @@ function fetchDemoAdvisories(sampleSize, ghsaIdFilter) {
             .filter((n) => n.advisory.ghsaId === ghsaIdFilter)
             .map(mapFeedNode);
     }
-    const exploitPool = nodes.filter((n) => EXPLOITABLE_GHSAS.has(n.advisory.ghsaId) &&
-        INSTALLED_EXPLOITABLE_PACKAGES.has(n.package.name));
-    const fillerPool = nodes.filter((n) => FILLER_PACKAGES.has(n.package.name));
-    fisherYates(exploitPool);
+    // Resolve each allowlisted entry to its exact feed node — exact ghsaId + packageName +
+    // vulnerableVersionRange match, never just "a node with this ghsaId".
+    const reachableNodes = REACHABLE_ENTRIES
+        .map(e => nodes.find((n) => n.advisory.ghsaId === e.ghsaId &&
+        n.package.name === e.packageName &&
+        n.vulnerableVersionRange === e.range))
+        .filter((n) => n != null);
+    const fillerPool = nodes.filter((n) => !REACHABLE_GHSA_IDS.has(n.advisory.ghsaId));
+    fisherYates(reachableNodes);
     fisherYates(fillerPool);
-    // Pick exactly 2 entries from distinct exploitable GHSAs
+    // Pick exactly 2 entries from distinct reachable GHSAs
     const picked = [];
     const seenGhsas = new Set();
-    for (const entry of exploitPool) {
+    for (const entry of reachableNodes) {
         if (seenGhsas.has(entry.advisory.ghsaId))
             continue;
         seenGhsas.add(entry.advisory.ghsaId);
@@ -33589,6 +33566,9 @@ function parsePurl(purl) {
 // reads the default branch). Supports lockfile v1 (dependencies) and v2/v3 (packages).
 function parseLocalNpmPackages(workspacePath) {
     const result = new Map();
+    // Tracks the nesting depth of the entry currently stored for each name, so a
+    // shallower (closer to top-level) resolution is never overwritten by a deeper one.
+    const depths = new Map();
     const lockfilePath = path.join(workspacePath, 'package-lock.json');
     if (!fs.existsSync(lockfilePath))
         return result;
@@ -33598,10 +33578,19 @@ function parseLocalNpmPackages(workspacePath) {
             for (const [key, value] of Object.entries(lockfile.packages)) {
                 if (key === '')
                     continue;
+                if (!value.version)
+                    continue;
                 // Strip leading "node_modules/" segments (handles nested hoisting paths)
                 const name = key.replace(/^(?:.*node_modules\/)/, '').toLowerCase();
-                if (value.version)
+                const depth = (key.match(/node_modules\//g) ?? []).length;
+                // Prefer the shallowest resolution: a nested dev-tool's bundled copy of a
+                // package (e.g. node_modules/svgo/node_modules/js-yaml) is not the version
+                // the application's own code imports — the top-level dependency is.
+                const existingDepth = depths.get(name);
+                if (existingDepth === undefined || depth < existingDepth) {
                     result.set(name, value.version);
+                    depths.set(name, depth);
+                }
             }
         }
         else if (lockfile.dependencies) {
@@ -35820,8 +35809,8 @@ async function closePendingVerificationIssue(token, ghsaId, verdict) {
             return;
         }
         const comment = verdict === 'PATCH_CONFIRMED'
-            ? `Patch verified. Rescan confirmed the vulnerability is no longer reachable. A pull request and tracking issue have been opened — review and merge when ready.`
-            : `Patch failed. Rescan found the vulnerability is still exploitable after the automated fix. A new issue has been opened with the rescan analysis and next steps.`;
+            ? `Patch verified. Rescan confirmed the vulnerability is no longer reachable. A pull request is open — review and merge when ready.`
+            : `Patch failed. Rescan found the vulnerability is still exploitable after the automated fix. See the latest analysis for next steps.`;
         await octokit.rest.issues.createComment({ owner, repo, issue_number: pending.number, body: comment });
         await octokit.rest.issues.update({
             owner, repo,
@@ -35849,6 +35838,42 @@ async function createGithubIssue(token, title, body) {
             core.warning(`Failed to create GitHub Issue: ${err instanceof Error ? err.message : String(err)}`);
         }
     }
+}
+async function findOpenIssueForGhsa(token, ghsaId) {
+    try {
+        const octokit = github.getOctokit(token);
+        const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
+        const { data: issues } = await octokit.rest.issues.listForRepo({ owner, repo, state: 'open', per_page: 100 });
+        const match = issues.find(i => i.title.includes('[VulTool]') && i.title.includes(ghsaId));
+        return match ? { number: match.number } : null;
+    }
+    catch {
+        return null;
+    }
+}
+async function commentOnIssue(token, issueNumber, body) {
+    try {
+        const octokit = github.getOctokit(token);
+        const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
+        await octokit.rest.issues.createComment({ owner, repo, issue_number: issueNumber, body });
+    }
+    catch (err) {
+        core.warning(`Failed to comment on issue #${issueNumber}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+}
+// Opens a new tracking issue for ghsaId, or — if a [VulTool] issue for this GHSA is
+// already open — posts updateNote as a comment instead. Keeps at most one open issue
+// per GHSA so a recurring finding (e.g. a guaranteed-sample package already fixed and
+// awaiting merge in a prior run) doesn't accumulate orphaned duplicate issues with no
+// follow-up once its branch/PR already exists.
+async function createOrUpdateGithubIssue(token, ghsaId, title, body, updateNote) {
+    const existing = await findOpenIssueForGhsa(token, ghsaId);
+    if (existing) {
+        await commentOnIssue(token, existing.number, updateNote);
+        core.info(`  Existing issue #${existing.number} updated for ${ghsaId} — skipped duplicate creation`);
+        return;
+    }
+    await createGithubIssue(token, title, body);
 }
 async function createGithubPR(token, title, body, head, base) {
     const octokit = github.getOctokit(token);
@@ -36203,7 +36228,8 @@ async function main() {
                     `> *Opened automatically by VulTool · [Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})*`,
                 ].join('\n');
                 const issueTitle = `[VulTool] ${ctx.threat.severity} · ${ctx.threat.packageName} (${ctx.threat.ghsaId}) confirmed exploitable`;
-                await createGithubIssue(token, issueTitle, issueBody);
+                const updateNote = `VulTool re-confirmed this vulnerability as exploitable in a later run; still no automated fix was generated. See [Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl}) for the latest analysis.`;
+                await createOrUpdateGithubIssue(token, ctx.threat.ghsaId, issueTitle, issueBody, updateNote);
             }
             if (unfixedTargets.length > 0) {
                 core.info(`  Issues opened for ${unfixedTargets.length} exploitable threat(s) without automated fix`);
@@ -36249,7 +36275,8 @@ async function main() {
                     `> *Opened automatically by VulTool · [Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})*`,
                 ].join('\n');
                 const issueTitle = `[VulTool] ${ctx.threat.severity} · ${ctx.threat.packageName} (${ctx.threat.ghsaId}) — fix branch created, verification pending`;
-                await createGithubIssue(token, issueTitle, issueBody);
+                const updateNote = `VulTool re-confirmed this vulnerability in a later run and refreshed \`${branch}\` with a new fix.${rescanned ? ` A new patch verification rescan has been triggered.` : ` Patch verification rescan was not triggered this time — review the branch manually.`} See [Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl}).`;
+                await createOrUpdateGithubIssue(token, ctx.threat.ghsaId, issueTitle, issueBody, updateNote);
             }
             if (fixedTargets.length > 0) {
                 core.info(`  Issues opened for ${fixedTargets.length} exploitable threat(s) with fix branch pending verification`);
@@ -36286,7 +36313,8 @@ async function main() {
                     `> *Opened automatically by VulTool · [Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})*`,
                 ].join('\n');
                 const issueTitle = `[VulTool] ${ctx.threat.severity} · ${ctx.threat.packageName} (${ctx.threat.ghsaId}) — analysis incomplete (LLM timeout)`;
-                await createGithubIssue(token, issueTitle, issueBody);
+                const updateNote = `LLM analysis timed out again in a later run ([Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})). Code usage remains confirmed; exploitability still undetermined.`;
+                await createOrUpdateGithubIssue(token, ctx.threat.ghsaId, issueTitle, issueBody, updateNote);
             }
             if (analysisTimedOut.length > 0) {
                 core.info(`  Issues opened for ${analysisTimedOut.length} reachable threat(s) with incomplete LLM analysis`);
@@ -36467,10 +36495,11 @@ async function main() {
                     `> *Opened automatically by VulTool (patch verification scan) · [Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})*`,
                 ].filter(l => l !== '').join('\n');
                 const issueTitle = `[VulTool] PATCH CONFIRMED · ${ctx.threat.packageName} (${rescanGhsaId}) — fix ready to merge`;
-                await createGithubIssue(token, issueTitle, issueBody);
-                core.info(`  Issue opened for verified fix on ${rescanGhsaId}`);
+                const updateNote = `Patch verification rescan confirmed this fix again in a later cycle ([Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})).${prUrl ? ` Pull request: ${prUrl}` : ''}`;
+                await createOrUpdateGithubIssue(token, rescanGhsaId ?? '', issueTitle, issueBody, updateNote);
+                core.info(`  Issue opened/updated for verified fix on ${rescanGhsaId}`);
                 if (prUrl)
-                    core.info(`  Pull request opened: ${prUrl}`);
+                    core.info(`  Pull request: ${prUrl}`);
             }
             // PATCH_FAILED — open an issue because the automated fix was insufficient
             if (createIssue && exploitable > 0 && exploitContexts.length > 0) {
@@ -36508,8 +36537,9 @@ async function main() {
                     `> *Opened automatically by VulTool (patch verification scan) · [Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})*`,
                 ].join('\n');
                 const issueTitle = `[VulTool] PATCH FAILED · ${ctx.threat.packageName} (${rescanGhsaId}) — vulnerability still reachable after automated fix`;
-                await createGithubIssue(token, issueTitle, issueBody);
-                core.info(`  Issue opened for patch failure on ${rescanGhsaId}`);
+                const updateNote = `Patch verification rescan found the vulnerability still reachable again in a later cycle ([Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})).`;
+                await createOrUpdateGithubIssue(token, rescanGhsaId ?? '', issueTitle, issueBody, updateNote);
+                core.info(`  Issue opened/updated for patch failure on ${rescanGhsaId}`);
             }
             // Close the original "verification pending" issue — rescan has produced a definitive result
             const rescanVerdictFinal = notExploitable > 0 ? 'PATCH_CONFIRMED' : exploitable > 0 ? 'PATCH_FAILED' : 'PATCH_INCONCLUSIVE';

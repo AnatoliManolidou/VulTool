@@ -153,62 +153,42 @@ function mapFeedNode(v: any): Advisory {
   };
 }
 
-// GHSAs confirmed exploitable in the Dummy test environment (GT = True).
-// Used to build the "guaranteed" portion of every demo sample.
-const EXPLOITABLE_GHSAS = new Set([
-  'GHSA-f2jv-r9rf-7988', // handlebars
-  'GHSA-phwq-j96m-2c2q', // ejs
-  'GHSA-36jr-mh4h-2g58', // d3-color
-  'GHSA-hjrf-2m68-5959', // jsonwebtoken
-  'GHSA-wc9g-mqfw-jrwm', // multer
-  'GHSA-535w-7cp7-47q4', // multer (second advisory)
-  'GHSA-qfvm-cv95-jqjf', // multer (third advisory)
-  'GHSA-2x7j-588g-ccc2', // nodemailer
-  'GHSA-wmmp-3585-3rmp', // nodemailer (second)
-  'GHSA-cc9r-2j5m-2m83', // nodemailer (third)
-  'GHSA-2883-xcg3-v3hh', // js-yaml
-  'GHSA-rgj7-g3m4-5g8c', // sharp
-  'GHSA-7w5x-hrqm-74c2', // smol-toml
-  'GHSA-j95f-988m-3j2f', // @tiptap/core
-  'GHSA-jxfw-x594-9x9m', // morgan
-  'GHSA-pfrx-2q88-qq97', // got
-  'GHSA-9c47-m6qq-7p4h', // json5
-  'GHSA-x5rq-j2xg-h7qm', // lodash
-  'GHSA-72xf-g2v4-qvf3', // tough-cookie
-  'GHSA-cf4h-3jhx-xvhq', // underscore
-]);
-
-// Package names installed in Dummy at a vulnerable version with direct source usage.
-// Paired with EXPLOITABLE_GHSAS to exclude variant entries (lodash-rails, org.webjars,
-// got >= 12.x, json5 < 1.0.2) that share the same GHSA but don't match the installed pkg.
-const INSTALLED_EXPLOITABLE_PACKAGES = new Set([
-  'd3-color', 'handlebars', 'ejs', 'jsonwebtoken', 'lodash', 'tough-cookie',
-  'underscore', 'got', 'json5', 'multer', 'nodemailer', 'js-yaml',
-  'morgan', 'smol-toml', 'sharp', '@tiptap/core',
-]);
-
-// Package names whose feed entries will always be rejected by C4 in the Dummy repo
-// (not installed, or installed at a version outside every advisory range).
-// These are safe filler: they add sample cardinality without triggering C7/C8/C9.
-const FILLER_PACKAGES = new Set([
-  'ansi-regex',           // transitive @6.2.2 — outside all 3.x/4.x/5.x/6.0.x ranges
-  'Moment.js',            // not installed (dep is 'moment', not 'Moment.js')
-  'moment',               // 2.29.3 installed — outside < 2.29.2
-  'lodash-rails',         // not installed
-  'lodash-amd',           // not installed
-  'lodash-es',            // not installed
-  'lodash.updatewith',    // not installed
-  'lodash.update',        // not installed
-  'lodash.setwith',       // not installed
-  'lodash.set',           // not installed
-  'minimist',             // transitive @1.2.8 — outside < 0.2.4 and < 1.2.6
-  'decode-uri-component', // not installed
-  'follow-redirects',     // transitive @1.16.0 — outside <= 1.15.5 and < 1.15.4
-  'cross-spawn',          // transitive @7.0.6 — outside < 6.0.6 and >= 7.0.0, < 7.0.5
-  'serialize-javascript', // 3.0.0 installed — outside < 2.1.1
-  'astro',                // not installed
-  'omniroute',            // not installed
-]);
+// Exact (ghsaId, packageName, vulnerableVersionRange) triples for feed entries that are
+// genuinely installed at a vulnerable version AND reachable via direct source usage in
+// the Dummy repo (reaches C7/C8/C9). Deliberately includes both GT-exploitable packages
+// and reachable-but-NOT_EXPLOITABLE ones (node-fetch) — "reachable" is about whether the
+// entry triggers LLM analysis, independent of the eventual verdict.
+//
+// Composite-key matching (not just ghsaId or packageName alone) is required because
+// several GHSAs have multiple feed entries sharing a package name where only ONE range
+// matches what's installed — e.g. GHSA-pfrx-2q88-qq97 has both "got < 11.8.5" (matches
+// our 11.8.3) and "got >= 12.0.0, < 12.1.0" (does not); matching by name alone can select
+// either one at random, which previously caused "0 confirmed" when the wrong one was drawn.
+interface ReachableEntry { ghsaId: string; packageName: string; range: string; }
+const REACHABLE_ENTRIES: ReachableEntry[] = [
+  { ghsaId: 'GHSA-36jr-mh4h-2g58', packageName: 'd3-color',     range: '>= 1.0.2, < 3.1.0' },
+  { ghsaId: 'GHSA-f2jv-r9rf-7988', packageName: 'handlebars',   range: '< 4.7.7' },
+  { ghsaId: 'GHSA-phwq-j96m-2c2q', packageName: 'ejs',          range: '< 3.1.7' },
+  { ghsaId: 'GHSA-hjrf-2m68-5959', packageName: 'jsonwebtoken', range: '<= 8.5.1' },
+  { ghsaId: 'GHSA-wc9g-mqfw-jrwm', packageName: 'multer',       range: '>= 1.4.4-lts.1, < 2.3.0' },
+  { ghsaId: 'GHSA-535w-7cp7-47q4', packageName: 'multer',       range: '>= 1.4.4-lts.1, < 2.3.0' },
+  { ghsaId: 'GHSA-qfvm-cv95-jqjf', packageName: 'multer',       range: '= 2.2.0' },
+  { ghsaId: 'GHSA-2x7j-588g-ccc2', packageName: 'nodemailer',   range: '< 9.1.0' },
+  { ghsaId: 'GHSA-wmmp-3585-3rmp', packageName: 'nodemailer',   range: '< 9.1.0' },
+  { ghsaId: 'GHSA-cc9r-2j5m-2m83', packageName: 'nodemailer',   range: '>= 6.9.16, < 9.1.0' },
+  { ghsaId: 'GHSA-2883-xcg3-v3hh', packageName: 'js-yaml',      range: '>= 4.0.0, < 4.3.2' },
+  { ghsaId: 'GHSA-jxfw-x594-9x9m', packageName: 'morgan',       range: '< 1.12.0' },
+  { ghsaId: 'GHSA-7w5x-hrqm-74c2', packageName: 'smol-toml',    range: '<= 1.7.0' },
+  { ghsaId: 'GHSA-rgj7-g3m4-5g8c', packageName: 'sharp',        range: '< 0.35.4' },
+  { ghsaId: 'GHSA-j95f-988m-3j2f', packageName: '@tiptap/core', range: '>= 3.7.0, < 3.30.5' },
+  { ghsaId: 'GHSA-pfrx-2q88-qq97', packageName: 'got',          range: '< 11.8.5' },
+  { ghsaId: 'GHSA-9c47-m6qq-7p4h', packageName: 'json5',        range: '>= 2.0.0, < 2.2.2' },
+  { ghsaId: 'GHSA-x5rq-j2xg-h7qm', packageName: 'lodash',       range: '>= 4.7.0, < 4.17.11' },
+  { ghsaId: 'GHSA-72xf-g2v4-qvf3', packageName: 'tough-cookie', range: '< 4.1.3' },
+  { ghsaId: 'GHSA-cf4h-3jhx-xvhq', packageName: 'underscore',   range: '>= 1.3.2, < 1.12.1' },
+  { ghsaId: 'GHSA-r683-j2x4-v87g', packageName: 'node-fetch',   range: '< 2.6.7' }, // reachable, GT = NOT_EXPLOITABLE
+];
+const REACHABLE_GHSA_IDS = new Set(REACHABLE_ENTRIES.map(e => e.ghsaId));
 
 function fisherYates<T>(arr: T[]): void {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -219,8 +199,10 @@ function fisherYates<T>(arr: T[]): void {
 
 // Loads the bundled advisory-feed.json. In rescan mode returns only the entry
 // matching ghsaIdFilter; otherwise returns a stratified sample:
-//   • exactly 2 distinct-GHSA entries from the exploitable pool (guaranteed C7/C8/C9 candidates)
-//   • (sampleSize - 2) entries from the filler pool (guaranteed C4 rejects — no LLM analysis)
+//   • exactly 2 distinct-GHSA entries drawn from REACHABLE_ENTRIES (guaranteed to reach C9)
+//   • (sampleSize - 2) filler entries — any feed entry whose GHSA is not in the reachable
+//     pool, which is therefore guaranteed to be rejected by C4 (not installed / out of
+//     range) or confirmed-but-unreachable by C7 (no source usage, e.g. semver, hono)
 function fetchDemoAdvisories(sampleSize: number, ghsaIdFilter?: string): Advisory[] {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const nodes: any[] = require('../data/advisory-feed.json');
@@ -231,19 +213,25 @@ function fetchDemoAdvisories(sampleSize: number, ghsaIdFilter?: string): Advisor
       .map(mapFeedNode);
   }
 
-  const exploitPool = nodes.filter((n: any) =>
-    EXPLOITABLE_GHSAS.has(n.advisory.ghsaId) &&
-    INSTALLED_EXPLOITABLE_PACKAGES.has(n.package.name)
-  );
-  const fillerPool = nodes.filter((n: any) => FILLER_PACKAGES.has(n.package.name));
+  // Resolve each allowlisted entry to its exact feed node — exact ghsaId + packageName +
+  // vulnerableVersionRange match, never just "a node with this ghsaId".
+  const reachableNodes = REACHABLE_ENTRIES
+    .map(e => nodes.find((n: any) =>
+      n.advisory.ghsaId === e.ghsaId &&
+      n.package.name === e.packageName &&
+      n.vulnerableVersionRange === e.range
+    ))
+    .filter((n: any) => n != null);
 
-  fisherYates(exploitPool);
+  const fillerPool = nodes.filter((n: any) => !REACHABLE_GHSA_IDS.has(n.advisory.ghsaId));
+
+  fisherYates(reachableNodes);
   fisherYates(fillerPool);
 
-  // Pick exactly 2 entries from distinct exploitable GHSAs
+  // Pick exactly 2 entries from distinct reachable GHSAs
   const picked: any[] = [];
   const seenGhsas = new Set<string>();
-  for (const entry of exploitPool) {
+  for (const entry of reachableNodes) {
     if (seenGhsas.has(entry.advisory.ghsaId)) continue;
     seenGhsas.add(entry.advisory.ghsaId);
     picked.push(entry);

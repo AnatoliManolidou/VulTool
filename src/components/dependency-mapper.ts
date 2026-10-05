@@ -48,6 +48,9 @@ function parsePurl(purl: string): { name: string; version: string } | null {
 // reads the default branch). Supports lockfile v1 (dependencies) and v2/v3 (packages).
 function parseLocalNpmPackages(workspacePath: string): Map<string, string> {
   const result: Map<string, string> = new Map();
+  // Tracks the nesting depth of the entry currently stored for each name, so a
+  // shallower (closer to top-level) resolution is never overwritten by a deeper one.
+  const depths: Map<string, number> = new Map();
   const lockfilePath = path.join(workspacePath, 'package-lock.json');
 
   if (!fs.existsSync(lockfilePath)) return result;
@@ -58,9 +61,18 @@ function parseLocalNpmPackages(workspacePath: string): Map<string, string> {
     if (lockfile.packages) {
       for (const [key, value] of Object.entries(lockfile.packages as Record<string, any>)) {
         if (key === '') continue;
+        if (!value.version) continue;
         // Strip leading "node_modules/" segments (handles nested hoisting paths)
-        const name = key.replace(/^(?:.*node_modules\/)/, '').toLowerCase();
-        if (value.version) result.set(name, value.version as string);
+        const name  = key.replace(/^(?:.*node_modules\/)/, '').toLowerCase();
+        const depth = (key.match(/node_modules\//g) ?? []).length;
+        // Prefer the shallowest resolution: a nested dev-tool's bundled copy of a
+        // package (e.g. node_modules/svgo/node_modules/js-yaml) is not the version
+        // the application's own code imports — the top-level dependency is.
+        const existingDepth = depths.get(name);
+        if (existingDepth === undefined || depth < existingDepth) {
+          result.set(name, value.version as string);
+          depths.set(name, depth);
+        }
       }
     } else if (lockfile.dependencies) {
       for (const [name, value] of Object.entries(lockfile.dependencies as Record<string, any>)) {
