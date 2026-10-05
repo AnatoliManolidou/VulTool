@@ -32911,16 +32911,19 @@ function mapFeedNode(v) {
         ecosystem: v.package.ecosystem.toLowerCase(),
     };
 }
-// GHSAs confirmed exploitable in the Dummy test environment (GT = True in process_results.py).
-// Two of these are guaranteed in every demo sample so each run has a predictable
-// number of C9 LLM analysis calls and the confusion matrix always has new TP candidates.
+// GHSAs confirmed exploitable in the Dummy test environment (GT = True).
+// Used to build the "guaranteed" portion of every demo sample.
 const EXPLOITABLE_GHSAS = new Set([
     'GHSA-f2jv-r9rf-7988', // handlebars
     'GHSA-phwq-j96m-2c2q', // ejs
     'GHSA-36jr-mh4h-2g58', // d3-color
     'GHSA-hjrf-2m68-5959', // jsonwebtoken
     'GHSA-wc9g-mqfw-jrwm', // multer
+    'GHSA-535w-7cp7-47q4', // multer (second advisory)
+    'GHSA-qfvm-cv95-jqjf', // multer (third advisory)
     'GHSA-2x7j-588g-ccc2', // nodemailer
+    'GHSA-wmmp-3585-3rmp', // nodemailer (second)
+    'GHSA-cc9r-2j5m-2m83', // nodemailer (third)
     'GHSA-2883-xcg3-v3hh', // js-yaml
     'GHSA-rgj7-g3m4-5g8c', // sharp
     'GHSA-7w5x-hrqm-74c2', // smol-toml
@@ -32932,6 +32935,36 @@ const EXPLOITABLE_GHSAS = new Set([
     'GHSA-72xf-g2v4-qvf3', // tough-cookie
     'GHSA-cf4h-3jhx-xvhq', // underscore
 ]);
+// Package names installed in Dummy at a vulnerable version with direct source usage.
+// Paired with EXPLOITABLE_GHSAS to exclude variant entries (lodash-rails, org.webjars,
+// got >= 12.x, json5 < 1.0.2) that share the same GHSA but don't match the installed pkg.
+const INSTALLED_EXPLOITABLE_PACKAGES = new Set([
+    'd3-color', 'handlebars', 'ejs', 'jsonwebtoken', 'lodash', 'tough-cookie',
+    'underscore', 'got', 'json5', 'multer', 'nodemailer', 'js-yaml',
+    'morgan', 'smol-toml', 'sharp', '@tiptap/core',
+]);
+// Package names whose feed entries will always be rejected by C4 in the Dummy repo
+// (not installed, or installed at a version outside every advisory range).
+// These are safe filler: they add sample cardinality without triggering C7/C8/C9.
+const FILLER_PACKAGES = new Set([
+    'ansi-regex', // transitive @6.2.2 — outside all 3.x/4.x/5.x/6.0.x ranges
+    'Moment.js', // not installed (dep is 'moment', not 'Moment.js')
+    'moment', // 2.29.3 installed — outside < 2.29.2
+    'lodash-rails', // not installed
+    'lodash-amd', // not installed
+    'lodash-es', // not installed
+    'lodash.updatewith', // not installed
+    'lodash.update', // not installed
+    'lodash.setwith', // not installed
+    'lodash.set', // not installed
+    'minimist', // transitive @1.2.8 — outside < 0.2.4 and < 1.2.6
+    'decode-uri-component', // not installed
+    'follow-redirects', // transitive @1.16.0 — outside <= 1.15.5 and < 1.15.4
+    'cross-spawn', // transitive @7.0.6 — outside < 6.0.6 and >= 7.0.0, < 7.0.5
+    'serialize-javascript', // 3.0.0 installed — outside < 2.1.1
+    'astro', // not installed
+    'omniroute', // not installed
+]);
 function fisherYates(arr) {
     for (let i = arr.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -32939,8 +32972,9 @@ function fisherYates(arr) {
     }
 }
 // Loads the bundled advisory-feed.json. In rescan mode returns only the entry
-// matching ghsaIdFilter; otherwise returns a stratified sample: exactly 2
-// distinct-GHSA exploitable entries + (sampleSize - 2) randomly drawn others.
+// matching ghsaIdFilter; otherwise returns a stratified sample:
+//   • exactly 2 distinct-GHSA entries from the exploitable pool (guaranteed C7/C8/C9 candidates)
+//   • (sampleSize - 2) entries from the filler pool (guaranteed C4 rejects — no LLM analysis)
 function fetchDemoAdvisories(sampleSize, ghsaIdFilter) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const nodes = __nccwpck_require__(1020);
@@ -32949,14 +32983,15 @@ function fetchDemoAdvisories(sampleSize, ghsaIdFilter) {
             .filter((n) => n.advisory.ghsaId === ghsaIdFilter)
             .map(mapFeedNode);
     }
-    const exploitable = nodes.filter((n) => EXPLOITABLE_GHSAS.has(n.advisory.ghsaId));
-    const other = nodes.filter((n) => !EXPLOITABLE_GHSAS.has(n.advisory.ghsaId));
-    fisherYates(exploitable);
-    fisherYates(other);
+    const exploitPool = nodes.filter((n) => EXPLOITABLE_GHSAS.has(n.advisory.ghsaId) &&
+        INSTALLED_EXPLOITABLE_PACKAGES.has(n.package.name));
+    const fillerPool = nodes.filter((n) => FILLER_PACKAGES.has(n.package.name));
+    fisherYates(exploitPool);
+    fisherYates(fillerPool);
     // Pick exactly 2 entries from distinct exploitable GHSAs
     const picked = [];
     const seenGhsas = new Set();
-    for (const entry of exploitable) {
+    for (const entry of exploitPool) {
         if (seenGhsas.has(entry.advisory.ghsaId))
             continue;
         seenGhsas.add(entry.advisory.ghsaId);
@@ -32964,7 +32999,7 @@ function fetchDemoAdvisories(sampleSize, ghsaIdFilter) {
         if (picked.length >= 2)
             break;
     }
-    const fill = other.slice(0, sampleSize - picked.length);
+    const fill = fillerPool.slice(0, sampleSize - picked.length);
     return [...picked, ...fill].map(mapFeedNode);
 }
 // ─── Main Export ──────────────────────────────────────────────────────────────
