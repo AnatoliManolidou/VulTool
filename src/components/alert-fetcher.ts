@@ -153,8 +153,38 @@ function mapFeedNode(v: any): Advisory {
   };
 }
 
+// GHSAs confirmed exploitable in the Dummy test environment (GT = True in process_results.py).
+// Two of these are guaranteed in every demo sample so each run has a predictable
+// number of C9 LLM analysis calls and the confusion matrix always has new TP candidates.
+const EXPLOITABLE_GHSAS = new Set([
+  'GHSA-f2jv-r9rf-7988', // handlebars
+  'GHSA-phwq-j96m-2c2q', // ejs
+  'GHSA-36jr-mh4h-2g58', // d3-color
+  'GHSA-hjrf-2m68-5959', // jsonwebtoken
+  'GHSA-wc9g-mqfw-jrwm', // multer
+  'GHSA-2x7j-588g-ccc2', // nodemailer
+  'GHSA-2883-xcg3-v3hh', // js-yaml
+  'GHSA-rgj7-g3m4-5g8c', // sharp
+  'GHSA-7w5x-hrqm-74c2', // smol-toml
+  'GHSA-j95f-988m-3j2f', // @tiptap/core
+  'GHSA-jxfw-x594-9x9m', // morgan
+  'GHSA-pfrx-2q88-qq97', // got
+  'GHSA-9c47-m6qq-7p4h', // json5
+  'GHSA-x5rq-j2xg-h7qm', // lodash
+  'GHSA-72xf-g2v4-qvf3', // tough-cookie
+  'GHSA-cf4h-3jhx-xvhq', // underscore
+]);
+
+function fisherYates<T>(arr: T[]): void {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
+
 // Loads the bundled advisory-feed.json. In rescan mode returns only the entry
-// matching ghsaIdFilter; otherwise returns a random sample of size sampleSize.
+// matching ghsaIdFilter; otherwise returns a stratified sample: exactly 2
+// distinct-GHSA exploitable entries + (sampleSize - 2) randomly drawn others.
 function fetchDemoAdvisories(sampleSize: number, ghsaIdFilter?: string): Advisory[] {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const nodes: any[] = require('../data/advisory-feed.json');
@@ -165,12 +195,24 @@ function fetchDemoAdvisories(sampleSize: number, ghsaIdFilter?: string): Advisor
       .map(mapFeedNode);
   }
 
-  // Fisher-Yates shuffle, take first sampleSize
-  for (let i = nodes.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [nodes[i], nodes[j]] = [nodes[j], nodes[i]];
+  const exploitable = nodes.filter((n: any) =>  EXPLOITABLE_GHSAS.has(n.advisory.ghsaId));
+  const other       = nodes.filter((n: any) => !EXPLOITABLE_GHSAS.has(n.advisory.ghsaId));
+
+  fisherYates(exploitable);
+  fisherYates(other);
+
+  // Pick exactly 2 entries from distinct exploitable GHSAs
+  const picked: any[] = [];
+  const seenGhsas = new Set<string>();
+  for (const entry of exploitable) {
+    if (seenGhsas.has(entry.advisory.ghsaId)) continue;
+    seenGhsas.add(entry.advisory.ghsaId);
+    picked.push(entry);
+    if (picked.length >= 2) break;
   }
-  return nodes.slice(0, Math.min(sampleSize, nodes.length)).map(mapFeedNode);
+
+  const fill = other.slice(0, sampleSize - picked.length);
+  return [...picked, ...fill].map(mapFeedNode);
 }
 
 // ─── Main Export ──────────────────────────────────────────────────────────────
@@ -183,7 +225,7 @@ export async function fetchRecentAdvisories(
   rescanGhsaId?: string,
 ): Promise<Advisory[]> {
   if (demoMode) {
-    return fetchDemoAdvisories(20, rescanGhsaId);
+    return fetchDemoAdvisories(25, rescanGhsaId);
   }
 
   const octokit = github.getOctokit(token);
