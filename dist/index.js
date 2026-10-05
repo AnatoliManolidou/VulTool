@@ -34878,9 +34878,9 @@ function detectGuards(entryPoint, callChain, codeSlice) {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.callLLM = callLLM;
-const LLM_TIMEOUT_MS = 300_000;
+const LLM_TIMEOUT_MS = 480_000;
 const LLM_RETRY_DELAY_MS = 30_000;
-const LLM_MAX_RETRIES = 2;
+const LLM_MAX_RETRIES = 1;
 async function callLLM(apiKey, prompt) {
     let lastErr = new Error('LLM call failed');
     for (let attempt = 0; attempt <= LLM_MAX_RETRIES; attempt++) {

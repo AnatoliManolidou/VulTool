@@ -1,6 +1,6 @@
-const LLM_TIMEOUT_MS     = 300_000;
+const LLM_TIMEOUT_MS     = 480_000;
 const LLM_RETRY_DELAY_MS =  30_000;
-const LLM_MAX_RETRIES    = 2;
+const LLM_MAX_RETRIES    = 1;
 
 export async function callLLM(apiKey: string, prompt: string): Promise<string> {
   let lastErr: Error = new Error('LLM call failed');
