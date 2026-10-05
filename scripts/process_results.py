@@ -33,6 +33,11 @@ GROUND_TRUTH = {
     "GHSA-r683-j2x4-v87g": False,  # node-fetch  — no credentials to forward
     "GHSA-c2qf-rxjj-qqgw": False,  # semver      — not called with user input
     "GHSA-g6gw-c38x-mqfc": False,  # hono        — no direct usage in app
+    "GHSA-pfrx-2q88-qq97": True,   # got         — SSRF via user-controlled URL to unix socket
+    "GHSA-9c47-m6qq-7p4h": True,   # json5       — prototype pollution via parse()
+    "GHSA-x5rq-j2xg-h7qm": True,   # lodash      — prototype pollution via _.merge()
+    "GHSA-72xf-g2v4-qvf3": True,   # tough-cookie — prototype pollution via Cookie.parse()
+    "GHSA-cf4h-3jhx-xvhq": True,   # underscore  — RCE via _.template()
 }
 
 EXPLOITABLE_VERDICTS = {"EXPLOITABLE", "CONDITIONALLY_EXPLOITABLE"}
