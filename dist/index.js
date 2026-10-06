@@ -32917,11 +32917,7 @@ const REACHABLE_ENTRIES = [
     { ghsaId: 'GHSA-phwq-j96m-2c2q', packageName: 'ejs', range: '< 3.1.7' },
     { ghsaId: 'GHSA-hjrf-2m68-5959', packageName: 'jsonwebtoken', range: '<= 8.5.1' },
     { ghsaId: 'GHSA-wc9g-mqfw-jrwm', packageName: 'multer', range: '>= 1.4.4-lts.1, < 2.3.0' },
-    { ghsaId: 'GHSA-535w-7cp7-47q4', packageName: 'multer', range: '>= 1.4.4-lts.1, < 2.3.0' },
-    { ghsaId: 'GHSA-qfvm-cv95-jqjf', packageName: 'multer', range: '= 2.2.0' },
     { ghsaId: 'GHSA-2x7j-588g-ccc2', packageName: 'nodemailer', range: '< 9.1.0' },
-    { ghsaId: 'GHSA-wmmp-3585-3rmp', packageName: 'nodemailer', range: '< 9.1.0' },
-    { ghsaId: 'GHSA-cc9r-2j5m-2m83', packageName: 'nodemailer', range: '>= 6.9.16, < 9.1.0' },
     { ghsaId: 'GHSA-2883-xcg3-v3hh', packageName: 'js-yaml', range: '>= 4.0.0, < 4.3.2' },
     { ghsaId: 'GHSA-jxfw-x594-9x9m', packageName: 'morgan', range: '< 1.12.0' },
     { ghsaId: 'GHSA-7w5x-hrqm-74c2', packageName: 'smol-toml', range: '<= 1.7.0' },
@@ -32935,6 +32931,22 @@ const REACHABLE_ENTRIES = [
     { ghsaId: 'GHSA-r683-j2x4-v87g', packageName: 'node-fetch', range: '< 2.6.7' }, // reachable, GT = NOT_EXPLOITABLE
 ];
 const REACHABLE_GHSA_IDS = new Set(REACHABLE_ENTRIES.map(e => e.ghsaId));
+// Sibling GHSAs: same package + same installed version as a REACHABLE_ENTRIES row, under
+// a different advisory ID (multer and nodemailer each have 3 GHSAs for the same version).
+// They are NOT in process_results.py's GROUND_TRUTH dict, so a pick landing on one of these
+// produces zero scorable evaluation data for that slot. Picking 2 of 21 original entries at
+// random (4 of which were siblings) meant ~35% of runs lost at least one "guaranteed"
+// scorable observation and ~3% lost both — confirmed by simulating 2000 draws. Excluding
+// them from REACHABLE_ENTRIES (above) is not enough on its own: because they share the same
+// installed package+version as their canonical sibling, they would still be confirmed at C4
+// and reach C7-C9 if drawn as filler, breaking the filler pool's "never reaches C9" guarantee
+// too. They must be excluded from both pools, not moved between them.
+const SIBLING_GHSA_IDS = new Set([
+    'GHSA-535w-7cp7-47q4', // multer, same range as GHSA-wc9g-mqfw-jrwm
+    'GHSA-qfvm-cv95-jqjf', // multer, same version as GHSA-wc9g-mqfw-jrwm
+    'GHSA-wmmp-3585-3rmp', // nodemailer, same range as GHSA-2x7j-588g-ccc2
+    'GHSA-cc9r-2j5m-2m83', // nodemailer, same range (narrower) as GHSA-2x7j-588g-ccc2
+]);
 function fisherYates(arr) {
     for (let i = arr.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -32962,7 +32974,8 @@ function fetchDemoAdvisories(sampleSize, ghsaIdFilter) {
         n.package.name === e.packageName &&
         n.vulnerableVersionRange === e.range))
         .filter((n) => n != null);
-    const fillerPool = nodes.filter((n) => !REACHABLE_GHSA_IDS.has(n.advisory.ghsaId));
+    const fillerPool = nodes.filter((n) => !REACHABLE_GHSA_IDS.has(n.advisory.ghsaId) &&
+        !SIBLING_GHSA_IDS.has(n.advisory.ghsaId));
     fisherYates(reachableNodes);
     fisherYates(fillerPool);
     // Pick exactly 2 entries from distinct reachable GHSAs
@@ -33521,6 +33534,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.parseLocalNpmPackages = parseLocalNpmPackages;
 exports.getRepositoryDependencies = getRepositoryDependencies;
 const core = __importStar(__nccwpck_require__(7484));
 const github = __importStar(__nccwpck_require__(3228));
@@ -36447,6 +36461,60 @@ async function main() {
                     ? `PATCH_FAILED — vulnerability still reachable after fix`
                     : `PATCH_INCONCLUSIVE — no exploit verdict produced`;
             core.info(`  ${rescanGhsaId} → ${patchVerdict}`);
+            // PATCH_INCONCLUSIVE via vanished code usage — distinct from an LLM timeout.
+            // This only happens in rescan mode, where the rescanned GHSA was confirmed
+            // reachable in the prior main run that triggered this rescan in the first place.
+            // Finding zero code usage now means the fix branch's vulnerable function is gone
+            // or substantially rewritten — e.g. the LLM's fix targeted a different function
+            // than the one matched for replacement, deleting the actual vulnerable function
+            // and leaving a duplicate, shadowed, unmodified copy of its caller elsewhere in
+            // the file (observed directly: GHSA-2x7j-588g-ccc2 / nodemailer). Neither the
+            // PATCH_CONFIRMED nor PATCH_FAILED branches below fire when exploitContexts is
+            // empty, and closePendingVerificationIssue only comments on an issue that's
+            // already open — if none exists, a broken fix otherwise produces zero GitHub
+            // visibility at all.
+            if (createIssue && exploitContexts.length === 0 && exploitable === 0 && notExploitable === 0) {
+                const runUrl = `https://github.com/${repoName}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`;
+                const rescanned = sortedThreats.find(t => t.ghsaId === rescanGhsaId);
+                const fixBranch = `vultool/fix-${rescanGhsaId?.toLowerCase() ?? ''}`;
+                const issueBody = [
+                    `## Patch Verification Anomaly — Vulnerable Code No Longer Present`,
+                    ``,
+                    `| | |`,
+                    `|---|---|`,
+                    `| **Package** | \`${rescanned?.packageName ?? 'unknown'}\` |`,
+                    `| **Advisory** | [${rescanGhsaId}](https://github.com/advisories/${rescanGhsaId}) |`,
+                    `| **Severity** | ${rescanned?.severity ?? 'unknown'} |`,
+                    `| **Patch verdict** | PATCH_INCONCLUSIVE (anomalous) |`,
+                    `| **Fix branch** | [\`${fixBranch}\`](../../compare/${fixBranch}) |`,
+                    ``,
+                    `---`,
+                    ``,
+                    `### What Happened`,
+                    ``,
+                    `This advisory was confirmed reachable in an earlier run, which generated an`,
+                    `automated fix and triggered this patch verification rescan. On the fix branch,`,
+                    `C7's AST analyzer found **no remaining code usage** of the vulnerable package`,
+                    `at all — not fixed in place, but absent. This is unusual: a normal mitigation`,
+                    `(added validation, an algorithm allowlist, a guard clause) still calls the`,
+                    `library, just more safely. Zero call sites most often means the automated fix`,
+                    `deleted or substantially restructured the function that originally called the`,
+                    `library, rather than patching it — possibly leaving the application broken if`,
+                    `that function is still referenced elsewhere (e.g. a duplicate, unmodified copy`,
+                    `of its caller still calling a now-deleted helper).`,
+                    ``,
+                    `**This needs manual review before merging.** Compare the fix branch against the`,
+                    `base branch directly: [\`${fixBranch}\`](../../compare/${fixBranch}).`,
+                    ``,
+                    `---`,
+                    ``,
+                    `> *Opened automatically by VulTool (patch verification scan) · [Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})*`,
+                ].join('\n');
+                const issueTitle = `[VulTool] ANOMALY · ${rescanned?.packageName ?? rescanGhsaId} (${rescanGhsaId}) — vulnerable code vanished after fix, needs manual review`;
+                const updateNote = `Rescan again found zero code usage for this GHSA on the fix branch in a later cycle ([Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})) — still needs manual review.`;
+                await createOrUpdateGithubIssue(token, rescanGhsaId ?? '', issueTitle, issueBody, updateNote);
+                core.info(`  Issue opened/updated — patch verification anomaly for ${rescanGhsaId} (code usage vanished)`);
+            }
             // PATCH_CONFIRMED — fix is verified; open a PR and an issue tracking it
             if (createIssue && notExploitable > 0 && exploitContexts.length > 0) {
                 const runUrl = `https://github.com/${repoName}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`;
@@ -36577,9 +36645,19 @@ async function main() {
                 core.info(`  ${'Package'.padEnd(28)} ${'Verdict'.padEnd(28)} Fix branch`);
                 core.info(`  ${'─'.repeat(28)} ${'─'.repeat(28)} ${'─'.repeat(28)}`);
                 for (const t of analyzedThreats) {
-                    const parsedVerdict = parseVerdict(llmReports.get(t.ghsaId) ?? '');
+                    const rawReport = llmReports.get(t.ghsaId);
+                    const parsedVerdict = parseVerdict(rawReport ?? '');
                     const timedOut = llmFailedIds.has(t.ghsaId);
-                    const verdict = parsedVerdict ?? (timedOut ? 'analysis failed (LLM timeout)' : 'not analyzed');
+                    // Three distinct outcomes were previously collapsed into one "not analyzed"
+                    // label: a genuine skip (no API key, never attempted), a timeout, and a call
+                    // that succeeded but whose response never reached the mandatory VERDICT line
+                    // (e.g. cut off by the provider's default output-length cap — no max_tokens
+                    // is set on the request). Only the last one means an LLM call was actually
+                    // spent with nothing usable to show for it, so it gets its own label.
+                    const verdict = parsedVerdict
+                        ?? (timedOut ? 'analysis failed (LLM timeout)'
+                            : rawReport ? 'incomplete response — no verdict line found'
+                                : 'not analyzed');
                     const branch = fixBranches.get(t.ghsaId);
                     const rescanned = rescanTriggered.has(t.ghsaId);
                     const isActionable = actionableVerdicts.has(parsedVerdict ?? '');

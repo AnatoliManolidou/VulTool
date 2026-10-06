@@ -46,7 +46,7 @@ function parsePurl(purl: string): { name: string; version: string } | null {
 // Parses package-lock.json from the workspace to catch npm packages that are on the
 // current branch but not yet reflected in the GitHub Dependency Graph (which always
 // reads the default branch). Supports lockfile v1 (dependencies) and v2/v3 (packages).
-function parseLocalNpmPackages(workspacePath: string): Map<string, string> {
+export function parseLocalNpmPackages(workspacePath: string): Map<string, string> {
   const result: Map<string, string> = new Map();
   // Tracks the nesting depth of the entry currently stored for each name, so a
   // shallower (closer to top-level) resolution is never overwritten by a deeper one.

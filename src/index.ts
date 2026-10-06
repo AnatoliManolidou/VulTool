@@ -1094,6 +1094,63 @@ async function main() {
           : `PATCH_INCONCLUSIVE — no exploit verdict produced`;
       core.info(`  ${rescanGhsaId} → ${patchVerdict}`);
 
+      // PATCH_INCONCLUSIVE via vanished code usage — distinct from an LLM timeout.
+      // This only happens in rescan mode, where the rescanned GHSA was confirmed
+      // reachable in the prior main run that triggered this rescan in the first place.
+      // Finding zero code usage now means the fix branch's vulnerable function is gone
+      // or substantially rewritten — e.g. the LLM's fix targeted a different function
+      // than the one matched for replacement, deleting the actual vulnerable function
+      // and leaving a duplicate, shadowed, unmodified copy of its caller elsewhere in
+      // the file (observed directly: GHSA-2x7j-588g-ccc2 / nodemailer). Neither the
+      // PATCH_CONFIRMED nor PATCH_FAILED branches below fire when exploitContexts is
+      // empty, and closePendingVerificationIssue only comments on an issue that's
+      // already open — if none exists, a broken fix otherwise produces zero GitHub
+      // visibility at all.
+      if (createIssue && exploitContexts.length === 0 && exploitable === 0 && notExploitable === 0) {
+        const runUrl   = `https://github.com/${repoName}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`;
+        const rescanned = sortedThreats.find(t => t.ghsaId === rescanGhsaId);
+        const fixBranch = `vultool/fix-${rescanGhsaId?.toLowerCase() ?? ''}`;
+
+        const issueBody = [
+          `## Patch Verification Anomaly — Vulnerable Code No Longer Present`,
+          ``,
+          `| | |`,
+          `|---|---|`,
+          `| **Package** | \`${rescanned?.packageName ?? 'unknown'}\` |`,
+          `| **Advisory** | [${rescanGhsaId}](https://github.com/advisories/${rescanGhsaId}) |`,
+          `| **Severity** | ${rescanned?.severity ?? 'unknown'} |`,
+          `| **Patch verdict** | PATCH_INCONCLUSIVE (anomalous) |`,
+          `| **Fix branch** | [\`${fixBranch}\`](../../compare/${fixBranch}) |`,
+          ``,
+          `---`,
+          ``,
+          `### What Happened`,
+          ``,
+          `This advisory was confirmed reachable in an earlier run, which generated an`,
+          `automated fix and triggered this patch verification rescan. On the fix branch,`,
+          `C7's AST analyzer found **no remaining code usage** of the vulnerable package`,
+          `at all — not fixed in place, but absent. This is unusual: a normal mitigation`,
+          `(added validation, an algorithm allowlist, a guard clause) still calls the`,
+          `library, just more safely. Zero call sites most often means the automated fix`,
+          `deleted or substantially restructured the function that originally called the`,
+          `library, rather than patching it — possibly leaving the application broken if`,
+          `that function is still referenced elsewhere (e.g. a duplicate, unmodified copy`,
+          `of its caller still calling a now-deleted helper).`,
+          ``,
+          `**This needs manual review before merging.** Compare the fix branch against the`,
+          `base branch directly: [\`${fixBranch}\`](../../compare/${fixBranch}).`,
+          ``,
+          `---`,
+          ``,
+          `> *Opened automatically by VulTool (patch verification scan) · [Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})*`,
+        ].join('\n');
+
+        const issueTitle = `[VulTool] ANOMALY · ${rescanned?.packageName ?? rescanGhsaId} (${rescanGhsaId}) — vulnerable code vanished after fix, needs manual review`;
+        const updateNote  = `Rescan again found zero code usage for this GHSA on the fix branch in a later cycle ([Run ${process.env.GITHUB_RUN_ID ?? ''}](${runUrl})) — still needs manual review.`;
+        await createOrUpdateGithubIssue(token, rescanGhsaId ?? '', issueTitle, issueBody, updateNote);
+        core.info(`  Issue opened/updated — patch verification anomaly for ${rescanGhsaId} (code usage vanished)`);
+      }
+
       // PATCH_CONFIRMED — fix is verified; open a PR and an issue tracking it
       if (createIssue && notExploitable > 0 && exploitContexts.length > 0) {
         const runUrl    = `https://github.com/${repoName}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}`;
@@ -1224,9 +1281,19 @@ async function main() {
         core.info(`  ${'Package'.padEnd(28)} ${'Verdict'.padEnd(28)} Fix branch`);
         core.info(`  ${'─'.repeat(28)} ${'─'.repeat(28)} ${'─'.repeat(28)}`);
         for (const t of analyzedThreats) {
-          const parsedVerdict = parseVerdict(llmReports.get(t.ghsaId) ?? '');
-          const timedOut     = llmFailedIds.has(t.ghsaId);
-          const verdict      = parsedVerdict ?? (timedOut ? 'analysis failed (LLM timeout)' : 'not analyzed');
+          const rawReport     = llmReports.get(t.ghsaId);
+          const parsedVerdict = parseVerdict(rawReport ?? '');
+          const timedOut      = llmFailedIds.has(t.ghsaId);
+          // Three distinct outcomes were previously collapsed into one "not analyzed"
+          // label: a genuine skip (no API key, never attempted), a timeout, and a call
+          // that succeeded but whose response never reached the mandatory VERDICT line
+          // (e.g. cut off by the provider's default output-length cap — no max_tokens
+          // is set on the request). Only the last one means an LLM call was actually
+          // spent with nothing usable to show for it, so it gets its own label.
+          const verdict = parsedVerdict
+            ?? (timedOut  ? 'analysis failed (LLM timeout)'
+              : rawReport ? 'incomplete response — no verdict line found'
+              :             'not analyzed');
           const branch       = fixBranches.get(t.ghsaId);
           const rescanned    = rescanTriggered.has(t.ghsaId);
           const isActionable = actionableVerdicts.has(parsedVerdict ?? '');

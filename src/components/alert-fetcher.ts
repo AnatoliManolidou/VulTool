@@ -171,11 +171,7 @@ const REACHABLE_ENTRIES: ReachableEntry[] = [
   { ghsaId: 'GHSA-phwq-j96m-2c2q', packageName: 'ejs',          range: '< 3.1.7' },
   { ghsaId: 'GHSA-hjrf-2m68-5959', packageName: 'jsonwebtoken', range: '<= 8.5.1' },
   { ghsaId: 'GHSA-wc9g-mqfw-jrwm', packageName: 'multer',       range: '>= 1.4.4-lts.1, < 2.3.0' },
-  { ghsaId: 'GHSA-535w-7cp7-47q4', packageName: 'multer',       range: '>= 1.4.4-lts.1, < 2.3.0' },
-  { ghsaId: 'GHSA-qfvm-cv95-jqjf', packageName: 'multer',       range: '= 2.2.0' },
   { ghsaId: 'GHSA-2x7j-588g-ccc2', packageName: 'nodemailer',   range: '< 9.1.0' },
-  { ghsaId: 'GHSA-wmmp-3585-3rmp', packageName: 'nodemailer',   range: '< 9.1.0' },
-  { ghsaId: 'GHSA-cc9r-2j5m-2m83', packageName: 'nodemailer',   range: '>= 6.9.16, < 9.1.0' },
   { ghsaId: 'GHSA-2883-xcg3-v3hh', packageName: 'js-yaml',      range: '>= 4.0.0, < 4.3.2' },
   { ghsaId: 'GHSA-jxfw-x594-9x9m', packageName: 'morgan',       range: '< 1.12.0' },
   { ghsaId: 'GHSA-7w5x-hrqm-74c2', packageName: 'smol-toml',    range: '<= 1.7.0' },
@@ -189,6 +185,23 @@ const REACHABLE_ENTRIES: ReachableEntry[] = [
   { ghsaId: 'GHSA-r683-j2x4-v87g', packageName: 'node-fetch',   range: '< 2.6.7' }, // reachable, GT = NOT_EXPLOITABLE
 ];
 const REACHABLE_GHSA_IDS = new Set(REACHABLE_ENTRIES.map(e => e.ghsaId));
+
+// Sibling GHSAs: same package + same installed version as a REACHABLE_ENTRIES row, under
+// a different advisory ID (multer and nodemailer each have 3 GHSAs for the same version).
+// They are NOT in process_results.py's GROUND_TRUTH dict, so a pick landing on one of these
+// produces zero scorable evaluation data for that slot. Picking 2 of 21 original entries at
+// random (4 of which were siblings) meant ~35% of runs lost at least one "guaranteed"
+// scorable observation and ~3% lost both — confirmed by simulating 2000 draws. Excluding
+// them from REACHABLE_ENTRIES (above) is not enough on its own: because they share the same
+// installed package+version as their canonical sibling, they would still be confirmed at C4
+// and reach C7-C9 if drawn as filler, breaking the filler pool's "never reaches C9" guarantee
+// too. They must be excluded from both pools, not moved between them.
+const SIBLING_GHSA_IDS = new Set([
+  'GHSA-535w-7cp7-47q4', // multer, same range as GHSA-wc9g-mqfw-jrwm
+  'GHSA-qfvm-cv95-jqjf', // multer, same version as GHSA-wc9g-mqfw-jrwm
+  'GHSA-wmmp-3585-3rmp', // nodemailer, same range as GHSA-2x7j-588g-ccc2
+  'GHSA-cc9r-2j5m-2m83', // nodemailer, same range (narrower) as GHSA-2x7j-588g-ccc2
+]);
 
 function fisherYates<T>(arr: T[]): void {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -223,7 +236,10 @@ function fetchDemoAdvisories(sampleSize: number, ghsaIdFilter?: string): Advisor
     ))
     .filter((n: any) => n != null);
 
-  const fillerPool = nodes.filter((n: any) => !REACHABLE_GHSA_IDS.has(n.advisory.ghsaId));
+  const fillerPool = nodes.filter((n: any) =>
+    !REACHABLE_GHSA_IDS.has(n.advisory.ghsaId) &&
+    !SIBLING_GHSA_IDS.has(n.advisory.ghsaId)
+  );
 
   fisherYates(reachableNodes);
   fisherYates(fillerPool);
