@@ -446,7 +446,9 @@ function renderHbs(t) { const tmpl = hbs.compile(t); return tmpl({}); }
       expect(ejsSlice).toBeDefined();
       expect(hbsSlice).toBeDefined();
       expect(ejsSlice!.eifCallSites).toHaveLength(1);
-      expect(hbsSlice!.eifCallSites).toHaveLength(1);
+      // hbs.compile(t) is a direct-binding call; tmpl({}) is a call on tmpl, which is
+      // itself derived from a direct-binding call — both are EIFs (derived-binding propagation).
+      expect(hbsSlice!.eifCallSites).toHaveLength(2);
     } finally { cleanup(); }
   });
 
@@ -499,17 +501,17 @@ function renderHbs(t) { const tmpl = hbs.compile(t); return tmpl({}); }
     } finally { cleanup(); }
   });
 
-  test('file imports package but never calls its binding → eifCallSites is empty', async () => {
+  test('file imports package but never calls its binding → no CodeSlice emitted', async () => {
+    // analyzeCodeUsage only pushes a result when eifCallSites.length > 0 — a package
+    // that's imported but never called produces no slice at all, not a slice with
+    // empty arrays.
     const { dir, cleanup } = makeTempWorkspace({
       'api.js': `const ejs = require('ejs');\n// ejs imported but never called\nconsole.log('hello');`,
       'package.json': JSON.stringify({ dependencies: {} }),
     });
     try {
       const results = await analyzeCodeUsage([makeThreat('ejs')], dir);
-      expect(results).toHaveLength(1);
-      expect(results[0].affectedFiles).toHaveLength(1);
-      expect(results[0].eifCallSites).toHaveLength(0);
-      expect(results[0].callerSlices).toHaveLength(0);
+      expect(results).toHaveLength(0);
     } finally { cleanup(); }
   });
 
@@ -660,10 +662,14 @@ function compileAndRender(source, context) {
     try {
       const results = await analyzeCodeUsage([makeThreat('handlebars', { ghsaId: 'GHSA-f2jv-r9rf-7988' })], dir);
       expect(results).toHaveLength(1);
-      // handlebars.compile is a method call on the binding → detected
-      // compiled(context) is a call on the result, not on the binding → NOT detected
-      expect(results[0].eifCallSites).toHaveLength(1);
-      expect(results[0].eifCallSites[0].callExpression).toContain('handlebars.compile(');
+      // handlebars.compile(source) is a direct-binding call. compiled(context) is a call
+      // on `compiled`, a variable derived from that direct-binding call — derived-binding
+      // propagation makes it an EIF too, and it's the call that actually receives the
+      // attacker-controlled `context` argument where the vulnerability fires.
+      expect(results[0].eifCallSites).toHaveLength(2);
+      const exprs = results[0].eifCallSites.map(s => s.callExpression);
+      expect(exprs).toContain('handlebars.compile(source)');
+      expect(exprs).toContain('compiled(context)');
       expect(results[0].callerSlices[0].functionName).toBe('compileAndRender');
     } finally { cleanup(); }
   });
@@ -716,6 +722,45 @@ function processColorInput(rawColor) {
       const callerNames = results[0].callerSlices.map(s => s.functionName);
       expect(callerNames).toContain('parseColor');
       expect(callerNames).toContain('processColorInput');
+    } finally { cleanup(); }
+  });
+
+  test('multer middleware pattern: const upload = multer(...); app.post(route, upload.any(), handler) — derived-binding propagation', async () => {
+    // Regression test for the C7 fix: upload.any() is a method call on `upload`, a variable
+    // derived from multer(...), a direct-binding call. Before derived-binding propagation,
+    // only the multer({...}) initialization call was found as an EIF, and its ±10-line
+    // module-level context never included the app.post(...) route registration — C9 would
+    // see only the middleware's construction, never its attachment to a route, and
+    // conclude the middleware was unreachable.
+    const source = `
+const multer = require('multer');
+const upload = multer({ dest: '/tmp/uploads' });
+
+function processUpload(files, fields) {
+  return { fileCount: files.length, fieldNames: Object.keys(fields) };
+}
+
+app.post('/api/upload', upload.any(), (req, res) => {
+  const result = processUpload(req.files || [], req.body);
+  res.json(result);
+});
+`;
+    const { dir, cleanup } = makeTempWorkspace({
+      'server/api.js': source,
+      'package.json':  JSON.stringify({ dependencies: { multer: '2.2.0' } }),
+    });
+    try {
+      const results = await analyzeCodeUsage([makeThreat('multer', { ghsaId: 'GHSA-wc9g-mqfw-jrwm' })], dir);
+      expect(results).toHaveLength(1);
+      const exprs = results[0].eifCallSites.map(s => s.callExpression);
+      expect(exprs.some(e => e.startsWith('multer('))).toBe(true);
+      expect(exprs.some(e => e.startsWith('upload.any('))).toBe(true);
+      // upload.any() is called at module scope (as an argument to app.post), so its
+      // caller slice is a module-level context window, not an enclosing function —
+      // and that window must include the route registration for C8 to find it.
+      const moduleSlice = results[0].callerSlices.find(s => s.functionName === '<module>');
+      expect(moduleSlice).toBeDefined();
+      expect(moduleSlice!.sourceText).toContain("app.post('/api/upload'");
     } finally { cleanup(); }
   });
 

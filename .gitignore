@@ -3,3 +3,5 @@ node_modules/
 
 # Ignore local testing environment files
 .env
+
+.DS_Store

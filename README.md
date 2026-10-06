@@ -133,7 +133,7 @@ jobs:
 | `github_token` | Yes | — | GitHub API token (use `secrets.GITHUB_TOKEN`) |
 | `llm_api_key` | No | — | OpenRouter API key. Without it, pipeline runs C1–C8 only |
 | `severity_threshold` | No | `HIGH` | Minimum severity: `LOW` / `MODERATE` / `HIGH` / `CRITICAL` |
-| `demo_mode` | No | `false` | Use bundled advisory feed (56 entries, 20 sampled per run) instead of live GitHub feed |
+| `demo_mode` | No | `false` | Use bundled advisory feed (56 entries; stratified sample of 25 per run — 2 guaranteed reachable, 23 guaranteed filler) instead of live GitHub feed |
 | `rescan_mode` | No | `false` | Patch verification mode — re-scans one advisory on a fix branch |
 | `rescan_ghsa_id` | No | — | GHSA ID to target in rescan mode |
 | `auto_rescan` | No | `true` | Automatically trigger the rescan workflow after a fix branch is created |
@@ -171,7 +171,7 @@ Discord embeds are sent for every pipeline outcome: analysis complete (with per-
 ## Limitations
 
 - **JavaScript/TypeScript only** for deep analysis (C7–C10). C1–C6 are multi-ecosystem.
-- **Middleware and client-side patterns** are not traced by the AST analyzer — vulnerabilities triggered inside library middleware (e.g. multer, morgan) or in browser-side framework code are not detected.
+- **Global middleware and client-side patterns** are not traced by the AST analyzer — vulnerabilities triggered inside middleware with no single traceable HTTP entry point (e.g. morgan, applied to every route) or in browser-side framework code (e.g. a React component) are not detected. Middleware registered via a per-route derived binding (e.g. `const upload = multer(...); app.post('/x', upload.any(), ...)`) *is* detected — the analyzer traces one level of variable assignment from the library's constructor call.
 - **LLM non-determinism** — the same advisory and code can produce different verdicts across runs. Single-run verdicts should be treated as probabilistic.
 - **Fix applier** replaces source text by exact match — may fail if the LLM reformats whitespace or if the function is dynamically constructed.
 - **SBOM API deprecation** — the synchronous SBOM endpoint used by C3 is scheduled for removal on 2026-11-13.
