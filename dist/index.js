@@ -35907,7 +35907,7 @@ async function createGithubPR(token, title, body, head, base) {
         return '';
     }
 }
-async function triggerRescan(token, ghsaId, fixBranch, createIssue) {
+async function triggerRescan(token, ghsaId, fixBranch, createIssue, demoMode) {
     const octokit = github.getOctokit(token);
     const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? '').split('/');
     const ref = process.env.GITHUB_REF_NAME ?? 'main';
@@ -35916,7 +35916,13 @@ async function triggerRescan(token, ghsaId, fixBranch, createIssue) {
         repo,
         workflow_id: 'rescan.yml',
         ref,
-        inputs: { ghsa_id: ghsaId, fix_branch: fixBranch, create_issue: String(createIssue) },
+        // Must match the mode of the run that found and fixed this GHSA — a live-mode
+        // finding won't exist in the bundled demo feed, so a hardcoded demo_mode here
+        // would make the rescan unable to find the very advisory it's meant to verify.
+        inputs: {
+            ghsa_id: ghsaId, fix_branch: fixBranch, create_issue: String(createIssue),
+            demo_mode: String(demoMode),
+        },
     });
 }
 async function main() {
@@ -36172,7 +36178,7 @@ async function main() {
                             // Step 5: trigger patch verification re-scan on the fix branch
                             if (autoRescan) {
                                 try {
-                                    await triggerRescan(token, ctx.threat.ghsaId, branch, createIssue);
+                                    await triggerRescan(token, ctx.threat.ghsaId, branch, createIssue, demoMode);
                                     rescanTriggered.add(ctx.threat.ghsaId);
                                 }
                                 catch (err) {
