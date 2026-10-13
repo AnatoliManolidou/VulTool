@@ -38,6 +38,28 @@ GROUND_TRUTH = {
     "GHSA-x5rq-j2xg-h7qm": True,   # lodash      — prototype pollution via _.merge()
     "GHSA-72xf-g2v4-qvf3": True,   # tough-cookie — prototype pollution via Cookie.parse()
     "GHSA-cf4h-3jhx-xvhq": True,   # underscore  — RCE via _.template()
+    "GHSA-hrpp-h998-j3pp": True,   # qs          — prototype pollution via parse()
+    "GHSA-5c6j-r48x-rmvq": True,   # serialize-javascript — RCE via RegExp.flags/toISOString
+    "GHSA-g644-9gfx-q4q4": True,   # vm2         — sandbox escape (RCE)
+    "GHSA-5fw9-fq32-wv5p": True,   # node-notifier — OS command injection
+    "GHSA-2m8v-572m-ff2v": True,   # systeminformation — OS command injection
+    "GHSA-cxjh-pqwp-8mfp": True,   # follow-redirects — Proxy-Authorization leak across hosts
+    "GHSA-78xj-cgh5-2h22": True,   # ip          — SSRF via IP-filter bypass
+    "GHSA-rhx6-c78j-4q9w": True,   # path-to-regexp — ReDoS
+    "GHSA-f5w6-r7rg-mcgq": True,   # validator   — ReDoS in isURL()
+    "GHSA-p9wx-2529-fp83": True,   # marked      — ReDoS
+    "GHSA-xwg4-93c6-3h42": True,   # send        — directory traversal
+    "GHSA-jmr7-xgp7-cmfj": True,   # fast-xml-parser — DoS via entity expansion
+    "GHSA-pxg6-pf52-xh8x": True,   # cookie      — cookie attribute injection
+    "GHSA-rpr9-rxv7-x643": True,   # sanitize-html — XSS via xmp passthrough
+    "GHSA-6663-c963-2gqg": True,   # ws          — DoS via oversized message
+    "GHSA-hh27-ffr2-f2jc": True,   # url-parse   — open redirect
+    "GHSA-3fvg-4v2m-98jf": True,   # jsrsasign   — JWT signature bypass
+    "GHSA-3v6h-hqm4-2rg6": True,   # adm-zip     — zip-slip arbitrary file write
+    "GHSA-pppg-cpfq-h7wr": False,  # jsonpath-plus — reachable but eval disabled (eval:false)
+    "GHSA-r628-mhmh-qjhw": False,  # tar         — reachable but filter rejects escapes/symlinks
+    "GHSA-9wcg-jrwf-8gg7": False,  # express-fileupload — reachable but parseNested left off
+    "GHSA-p493-635q-r6gr": False,  # pug         — reachable but user data only in locals, not compile opts
 }
 
 EXPLOITABLE_VERDICTS = {"EXPLOITABLE", "CONDITIONALLY_EXPLOITABLE"}

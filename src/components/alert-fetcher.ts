@@ -183,6 +183,28 @@ const REACHABLE_ENTRIES: ReachableEntry[] = [
   { ghsaId: 'GHSA-72xf-g2v4-qvf3', packageName: 'tough-cookie', range: '< 4.1.3' },
   { ghsaId: 'GHSA-cf4h-3jhx-xvhq', packageName: 'underscore',   range: '>= 1.3.2, < 1.12.1' },
   { ghsaId: 'GHSA-r683-j2x4-v87g', packageName: 'node-fetch',   range: '< 2.6.7' }, // reachable, GT = NOT_EXPLOITABLE
+  { ghsaId: 'GHSA-hrpp-h998-j3pp', packageName: 'qs',               range: '>= 6.10.0, < 6.10.3' },
+  { ghsaId: 'GHSA-5c6j-r48x-rmvq', packageName: 'serialize-javascript', range: '<= 7.0.2' },
+  { ghsaId: 'GHSA-g644-9gfx-q4q4', packageName: 'vm2',              range: '<= 3.9.19' },
+  { ghsaId: 'GHSA-5fw9-fq32-wv5p', packageName: 'node-notifier',    range: '< 8.0.1' },
+  { ghsaId: 'GHSA-2m8v-572m-ff2v', packageName: 'systeminformation', range: '< 5.3.1' },
+  { ghsaId: 'GHSA-cxjh-pqwp-8mfp', packageName: 'follow-redirects', range: '<= 1.15.5' },
+  { ghsaId: 'GHSA-78xj-cgh5-2h22', packageName: 'ip',                range: '< 1.1.9' },
+  { ghsaId: 'GHSA-rhx6-c78j-4q9w', packageName: 'path-to-regexp',    range: '< 0.1.12' },
+  { ghsaId: 'GHSA-f5w6-r7rg-mcgq', packageName: 'validator',         range: '< 3.22.1' },
+  { ghsaId: 'GHSA-p9wx-2529-fp83', packageName: 'marked',            range: '< 0.3.17' },
+  { ghsaId: 'GHSA-xwg4-93c6-3h42', packageName: 'send',             range: '< 0.8.4' },
+  { ghsaId: 'GHSA-jmr7-xgp7-cmfj', packageName: 'fast-xml-parser',  range: '>= 4.1.3, < 4.5.4' },
+  { ghsaId: 'GHSA-pxg6-pf52-xh8x', packageName: 'cookie',           range: '< 0.7.0' },
+  { ghsaId: 'GHSA-rpr9-rxv7-x643', packageName: 'sanitize-html',    range: '<= 2.17.3' },
+  { ghsaId: 'GHSA-6663-c963-2gqg', packageName: 'ws',               range: '< 1.1.1' },
+  { ghsaId: 'GHSA-hh27-ffr2-f2jc', packageName: 'url-parse',        range: '>= 0.1.0, < 1.5.2' },
+  { ghsaId: 'GHSA-3fvg-4v2m-98jf', packageName: 'jsrsasign',        range: '>= 4.8.0, < 10.5.25' },
+  { ghsaId: 'GHSA-3v6h-hqm4-2rg6', packageName: 'adm-zip',          range: '< 0.4.11' },
+  { ghsaId: 'GHSA-pppg-cpfq-h7wr', packageName: 'jsonpath-plus',    range: '< 10.2.0' }, // reachable, GT = NOT_EXPLOITABLE (eval:false)
+  { ghsaId: 'GHSA-r628-mhmh-qjhw', packageName: 'tar',              range: '>= 6.0.0, < 6.1.2' }, // reachable, GT = NOT_EXPLOITABLE (filter)
+  { ghsaId: 'GHSA-9wcg-jrwf-8gg7', packageName: 'express-fileupload', range: '< 1.1.9' }, // reachable, GT = NOT_EXPLOITABLE (parseNested off)
+  { ghsaId: 'GHSA-p493-635q-r6gr', packageName: 'pug',              range: '< 3.0.1' }, // reachable, GT = NOT_EXPLOITABLE (locals only)
 ];
 const REACHABLE_GHSA_IDS = new Set(REACHABLE_ENTRIES.map(e => e.ghsaId));
 

@@ -1658,5 +1658,583 @@
         "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"
       }
     }
+  },
+  {
+    "severity": "HIGH",
+    "vulnerableVersionRange": ">= 6.10.0, < 6.10.3",
+    "firstPatchedVersion": {
+      "identifier": "6.10.3"
+    },
+    "package": {
+      "name": "qs",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-hrpp-h998-j3pp",
+      "summary": "qs vulnerable to Prototype Pollution",
+      "description": "qs is a querystring parsing and stringifying library. Affected versions allow an attacker to pollute Object.prototype by submitting a query string containing a crafted `__proto__` key during parsing. This issue has been patched in 6.10.3 and corresponding fixes in earlier minor release branches. There are no known workarounds.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-1321",
+            "name": "Improperly Controlled Modification of Object Prototype Attributes ('Prototype Pollution')"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 7.5,
+        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      }
+    }
+  },
+  {
+    "severity": "HIGH",
+    "vulnerableVersionRange": "<= 7.0.2",
+    "firstPatchedVersion": {
+      "identifier": "7.0.3"
+    },
+    "package": {
+      "name": "serialize-javascript",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-5c6j-r48x-rmvq",
+      "summary": "Serialize JavaScript is Vulnerable to RCE via RegExp.flags and Date.prototype.toISOString()",
+      "description": "serialize-javascript converts JavaScript values into a string that can later be safely embedded in HTML and re-parsed. Versions through 7.0.2 do not escape the output of a crafted object's RegExp.flags getter or Date.prototype.toISOString override during serialization, allowing an attacker-controlled getter to inject arbitrary script content into the serialized output. This issue has been patched in 7.0.3. There are no known workarounds.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-96",
+            "name": "Improper Neutralization of Directives in Statically Saved Code ('Static Code Injection')"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 8.1,
+        "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      }
+    }
+  },
+  {
+    "severity": "CRITICAL",
+    "vulnerableVersionRange": "<= 3.9.19",
+    "firstPatchedVersion": null,
+    "package": {
+      "name": "vm2",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-g644-9gfx-q4q4",
+      "summary": "vm2 Sandbox Escape vulnerability",
+      "description": "vm2 is a sandbox that can run untrusted code with Node's built-in modules restricted. A crafted script using a custom `inspect` function trick can escape the sandbox and execute arbitrary code in the host Node.js process. The vm2 project is no longer maintained and no patched version is available. The only mitigation is to avoid running untrusted code in vm2 sandboxes entirely.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-78",
+            "name": "Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 9.8,
+        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      }
+    }
+  },
+  {
+    "severity": "MODERATE",
+    "vulnerableVersionRange": "< 8.0.1",
+    "firstPatchedVersion": {
+      "identifier": "8.0.1"
+    },
+    "package": {
+      "name": "node-notifier",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-5fw9-fq32-wv5p",
+      "summary": "OS Command Injection in node-notifier",
+      "description": "node-notifier sends native desktop notifications. Prior to 8.0.1, option values passed to the underlying notifier binaries (e.g. notify-send on Linux) are not sanitized, allowing an attacker who controls notification title/message/icon values to inject additional shell arguments and execute arbitrary OS commands. This issue has been patched in 8.0.1. There are no known workarounds.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-78",
+            "name": "Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 5.6,
+        "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:L"
+      }
+    }
+  },
+  {
+    "severity": "HIGH",
+    "vulnerableVersionRange": "< 5.3.1",
+    "firstPatchedVersion": {
+      "identifier": "5.3.1"
+    },
+    "package": {
+      "name": "systeminformation",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-2m8v-572m-ff2v",
+      "summary": "Command Injection Vulnerability in systeminformation",
+      "description": "systeminformation collects detailed hardware and OS information. Prior to 5.3.1, several functions (including the service-status helper) build shell commands by concatenating a caller-supplied parameter without sanitization, allowing an attacker who controls that parameter to inject additional shell commands. This issue has been patched in 5.3.1. There are no known workarounds.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-78",
+            "name": "Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 7.8,
+        "vectorString": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      }
+    }
+  },
+  {
+    "severity": "LOW",
+    "vulnerableVersionRange": "< 1.1.9",
+    "firstPatchedVersion": {
+      "identifier": "1.1.9"
+    },
+    "package": {
+      "name": "ip",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-78xj-cgh5-2h22",
+      "summary": "NPM IP package incorrectly identifies some private IP addresses as public",
+      "description": "ip provides utilities for IPv4 and IPv6 address manipulation. The isPublic() function incorrectly classifies some private, loopback, and reserved address ranges as public when expressed in unusual (non-dotted-decimal) forms, allowing an attacker to bypass SSRF guards that rely on this function. This issue has been patched in 1.1.9. There are no known workarounds.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-918",
+            "name": "Server-Side Request Forgery (SSRF)"
+          }
+        ]
+      },
+      "cvss": null
+    }
+  },
+  {
+    "severity": "HIGH",
+    "vulnerableVersionRange": "< 0.1.12",
+    "firstPatchedVersion": {
+      "identifier": "0.1.12"
+    },
+    "package": {
+      "name": "path-to-regexp",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-rhx6-c78j-4q9w",
+      "summary": "path-to-regexp contains a ReDoS",
+      "description": "path-to-regexp turns path strings into regular expressions used for route matching. In versions prior to 0.1.12, a crafted path pattern containing two named parameters in the same path segment separated by certain characters produces a regular expression vulnerable to catastrophic backtracking, allowing an attacker-supplied pattern to cause denial of service. This issue has been patched in 0.1.12.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-1333",
+            "name": "Inefficient Regular Expression Complexity"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 7.7,
+        "vectorString": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N/E:P"
+      }
+    }
+  },
+  {
+    "severity": "HIGH",
+    "vulnerableVersionRange": "< 3.22.1",
+    "firstPatchedVersion": {
+      "identifier": "3.22.1"
+    },
+    "package": {
+      "name": "validator",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-f5w6-r7rg-mcgq",
+      "summary": "Regular Expression Denial of Service in validator",
+      "description": "validator is a library of string validators. The isURL() function in versions prior to 3.22.1 uses a regular expression vulnerable to catastrophic backtracking, allowing an attacker-supplied string to cause denial of service when validated. This issue has been patched in 3.22.1.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-400",
+            "name": "Uncontrolled Resource Consumption"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 7.5,
+        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      }
+    }
+  },
+  {
+    "severity": "MODERATE",
+    "vulnerableVersionRange": "< 0.3.17",
+    "firstPatchedVersion": {
+      "identifier": "0.3.17"
+    },
+    "package": {
+      "name": "marked",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-p9wx-2529-fp83",
+      "summary": "Marked allows Regular Expression Denial of Service (ReDoS) attacks",
+      "description": "marked is a markdown parser and compiler. Versions prior to 0.3.17 contain regular expressions in the link and inline HTML tag parsing logic vulnerable to catastrophic backtracking, allowing attacker-supplied Markdown input to cause denial of service when rendered. This issue has been patched in 0.3.17.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-1333",
+            "name": "Inefficient Regular Expression Complexity"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 6.9,
+        "vectorString": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N"
+      }
+    }
+  },
+  {
+    "severity": "LOW",
+    "vulnerableVersionRange": "< 0.8.4",
+    "firstPatchedVersion": {
+      "identifier": "0.8.4"
+    },
+    "package": {
+      "name": "send",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-xwg4-93c6-3h42",
+      "summary": "Directory Traversal in send",
+      "description": "send is a library for streaming files from the file system as an HTTP response. Versions prior to 0.8.4 are vulnerable to directory traversal via a crafted path containing encoded traversal sequences, allowing access to files outside the configured root directory. This issue has been patched in 0.8.4.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-22",
+            "name": "Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+          }
+        ]
+      },
+      "cvss": null
+    }
+  },
+  {
+    "severity": "HIGH",
+    "vulnerableVersionRange": ">= 4.1.3, < 4.5.4",
+    "firstPatchedVersion": {
+      "identifier": "4.5.4"
+    },
+    "package": {
+      "name": "fast-xml-parser",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-jmr7-xgp7-cmfj",
+      "summary": "fast-xml-parser affected by DoS through entity expansion in DOCTYPE",
+      "description": "fast-xml-parser is a JavaScript XML parser. Versions in the affected range place no limit on DOCTYPE entity expansion, allowing a tiny crafted XML payload containing recursive entity definitions to exhaust CPU and memory when parsed. This issue has been patched in 4.5.4.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-776",
+            "name": "Improper Restriction of Recursive Entity References in DTDs ('XML Entity Expansion')"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 7.5,
+        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      }
+    }
+  },
+  {
+    "severity": "LOW",
+    "vulnerableVersionRange": "< 0.7.0",
+    "firstPatchedVersion": {
+      "identifier": "0.7.0"
+    },
+    "package": {
+      "name": "cookie",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-pxg6-pf52-xh8x",
+      "summary": "cookie accepts cookie name, path, and domain with out of bounds characters",
+      "description": "cookie is a basic cookie parsing and serialization library. Versions prior to 0.7.0 do not reject out-of-bounds characters in the cookie name, path, or domain arguments passed to serialize(), allowing a crafted value to inject additional cookie attributes into the resulting Set-Cookie header. This issue has been patched in 0.7.0.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-74",
+            "name": "Improper Neutralization of Special Elements in Output Used by a Downstream Component ('Injection')"
+          }
+        ]
+      },
+      "cvss": null
+    }
+  },
+  {
+    "severity": "CRITICAL",
+    "vulnerableVersionRange": "<= 2.17.3",
+    "firstPatchedVersion": {
+      "identifier": "2.17.4"
+    },
+    "package": {
+      "name": "sanitize-html",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-rpr9-rxv7-x643",
+      "summary": "sanitize-html default XSS via xmp raw-text passthrough",
+      "description": "sanitize-html cleans up user-submitted HTML to remove dangerous markup. Under the default configuration, versions up to and including 2.17.3 turn content inside a disallowed `<xmp>` element into live HTML/JS output rather than stripping or escaping it, allowing a stored cross-site scripting payload to survive sanitization. This issue has been patched in 2.17.4.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-79",
+            "name": "Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 9.3,
+        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:N"
+      }
+    }
+  },
+  {
+    "severity": "HIGH",
+    "vulnerableVersionRange": "< 1.1.1",
+    "firstPatchedVersion": {
+      "identifier": "1.1.1"
+    },
+    "package": {
+      "name": "ws",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-6663-c963-2gqg",
+      "summary": "DoS due to excessively large websocket message in ws",
+      "description": "ws is a WebSocket client and server implementation for Node.js. Versions prior to 1.1.1 place no limit on incoming message payload size by default, so a single oversized frame sent by a connected client can exhaust process memory and crash the server. This issue has been patched in 1.1.1.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-400",
+            "name": "Uncontrolled Resource Consumption"
+          }
+        ]
+      },
+      "cvss": null
+    }
+  },
+  {
+    "severity": "MODERATE",
+    "vulnerableVersionRange": ">= 0.1.0, < 1.5.2",
+    "firstPatchedVersion": {
+      "identifier": "1.5.2"
+    },
+    "package": {
+      "name": "url-parse",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-hh27-ffr2-f2jc",
+      "summary": "Open redirect in url-parse",
+      "description": "url-parse is a small footprint URL parser. In the affected range, certain malformed URLs are parsed such that the reported hostname differs from the host a browser will actually navigate to, allowing a crafted URL to bypass hostname-allowlist checks and cause an open redirect. This issue has been patched in 1.5.2.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-601",
+            "name": "URL Redirection to Untrusted Site ('Open Redirect')"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 6.1,
+        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N"
+      }
+    }
+  },
+  {
+    "severity": "HIGH",
+    "vulnerableVersionRange": ">= 4.8.0, < 10.5.25",
+    "firstPatchedVersion": {
+      "identifier": "10.5.25"
+    },
+    "package": {
+      "name": "jsrsasign",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-3fvg-4v2m-98jf",
+      "summary": "JWS and JWT signature validation vulnerability with special characters",
+      "description": "jsrsasign is a cryptographic library in pure JavaScript. In the affected range, JWS/JWT signatures that contain stray non-Base64URL characters are incorrectly accepted as valid, allowing an attacker to forge a token that passes signature verification. This issue has been patched in 10.5.25.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-347",
+            "name": "Improper Verification of Cryptographic Signature"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 8.6,
+        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:N/I:H/A:N"
+      }
+    }
+  },
+  {
+    "severity": "MODERATE",
+    "vulnerableVersionRange": "< 0.4.11",
+    "firstPatchedVersion": {
+      "identifier": "0.4.11"
+    },
+    "package": {
+      "name": "adm-zip",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-3v6h-hqm4-2rg6",
+      "summary": "Arbitrary File Write in adm-zip",
+      "description": "adm-zip is a zip library for Node.js. In versions prior to 0.4.11, extractAllTo does not fully contain extraction within the target directory: an archive entry whose name resolves outside the target directory via traversal sequences is written to that outside path, allowing arbitrary file write. This issue has been patched in 0.4.11.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-22",
+            "name": "Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 5.5,
+        "vectorString": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:N/I:H/A:N"
+      }
+    }
+  },
+  {
+    "severity": "CRITICAL",
+    "vulnerableVersionRange": "< 10.2.0",
+    "firstPatchedVersion": {
+      "identifier": "10.2.0"
+    },
+    "package": {
+      "name": "jsonpath-plus",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-pppg-cpfq-h7wr",
+      "summary": "JSONPath Plus Remote Code Execution (RCE) Vulnerability",
+      "description": "jsonpath-plus allows querying of JSON structures using JSONPath expressions. In versions prior to 10.2.0, script/filter expressions embedded in a JSONPath query are evaluated using an unsafe engine, allowing an attacker who controls the query to execute arbitrary code. This issue has been patched in 10.2.0.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-94",
+            "name": "Improper Control of Generation of Code ('Code Injection')"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 9.3,
+        "vectorString": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    }
+  },
+  {
+    "severity": "MODERATE",
+    "vulnerableVersionRange": ">= 6.0.0, < 6.1.2",
+    "firstPatchedVersion": {
+      "identifier": "6.1.2"
+    },
+    "package": {
+      "name": "tar",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-r628-mhmh-qjhw",
+      "summary": "Arbitrary File Creation/Overwrite via insufficient symlink protection due to directory cache poisoning",
+      "description": "tar (node-tar) is used to create and extract tar archives. In the affected range, a crafted archive containing a directory entry followed by a same-named symbolic link entry can poison the internal directory cache so that subsequent entries are written outside the extraction target directory, allowing arbitrary file creation or overwrite. This issue has been patched in 6.1.2.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-22",
+            "name": "Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+          },
+          {
+            "cweId": "CWE-59",
+            "name": "Improper Link Resolution Before File Access ('Link Following')"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 8.2,
+        "vectorString": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:N"
+      }
+    }
+  },
+  {
+    "severity": "CRITICAL",
+    "vulnerableVersionRange": "< 1.1.9",
+    "firstPatchedVersion": {
+      "identifier": "1.1.9"
+    },
+    "package": {
+      "name": "express-fileupload",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-9wcg-jrwf-8gg7",
+      "summary": "Prototype Pollution in express-fileupload",
+      "description": "express-fileupload is an Express middleware for handling file uploads. In versions prior to 1.1.9, when the parseNested option is enabled, a crafted multipart field name can pollute Object.prototype during nested-object construction. This issue has been patched in 1.1.9.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-1321",
+            "name": "Improperly Controlled Modification of Object Prototype Attributes ('Prototype Pollution')"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 9.8,
+        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      }
+    }
+  },
+  {
+    "severity": "MODERATE",
+    "vulnerableVersionRange": "< 3.0.1",
+    "firstPatchedVersion": {
+      "identifier": "3.0.1"
+    },
+    "package": {
+      "name": "pug",
+      "ecosystem": "NPM"
+    },
+    "advisory": {
+      "ghsaId": "GHSA-p493-635q-r6gr",
+      "summary": "Remote code execution via the pretty option in pug",
+      "description": "pug is a template engine. In versions prior to 3.0.1, if an attacker controls the `pretty` option passed to the template compiler, arbitrary code can be executed on the server. This issue has been patched in 3.0.1.",
+      "cwes": {
+        "nodes": [
+          {
+            "cweId": "CWE-94",
+            "name": "Improper Control of Generation of Code ('Code Injection')"
+          }
+        ]
+      },
+      "cvss": {
+        "score": 6.8,
+        "vectorString": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:N/I:H/A:N"
+      }
+    }
   }
 ]

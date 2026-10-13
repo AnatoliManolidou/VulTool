@@ -10,6 +10,14 @@ const CANONICAL_GHSAS = new Set([
   'GHSA-7w5x-hrqm-74c2', 'GHSA-rgj7-g3m4-5g8c', 'GHSA-j95f-988m-3j2f', 'GHSA-pfrx-2q88-qq97',
   'GHSA-9c47-m6qq-7p4h', 'GHSA-x5rq-j2xg-h7qm', 'GHSA-72xf-g2v4-qvf3', 'GHSA-cf4h-3jhx-xvhq',
   'GHSA-r683-j2x4-v87g',
+  'GHSA-hrpp-h998-j3pp', 'GHSA-5c6j-r48x-rmvq', 'GHSA-g644-9gfx-q4q4', 'GHSA-5fw9-fq32-wv5p',
+  'GHSA-2m8v-572m-ff2v',
+  'GHSA-cxjh-pqwp-8mfp', 'GHSA-78xj-cgh5-2h22', 'GHSA-rhx6-c78j-4q9w', 'GHSA-f5w6-r7rg-mcgq',
+  'GHSA-p9wx-2529-fp83',
+  'GHSA-xwg4-93c6-3h42', 'GHSA-jmr7-xgp7-cmfj', 'GHSA-pxg6-pf52-xh8x', 'GHSA-rpr9-rxv7-x643',
+  'GHSA-6663-c963-2gqg',
+  'GHSA-hh27-ffr2-f2jc', 'GHSA-3fvg-4v2m-98jf', 'GHSA-3v6h-hqm4-2rg6',
+  'GHSA-pppg-cpfq-h7wr', 'GHSA-r628-mhmh-qjhw', 'GHSA-9wcg-jrwf-8gg7', 'GHSA-p493-635q-r6gr',
 ]);
 const SIBLING_GHSAS = new Set([
   'GHSA-535w-7cp7-47q4', 'GHSA-qfvm-cv95-jqjf', // multer siblings of GHSA-wc9g-mqfw-jrwm
