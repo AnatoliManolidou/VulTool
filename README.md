@@ -133,7 +133,7 @@ jobs:
 | `github_token` | Yes | — | GitHub API token (use `secrets.GITHUB_TOKEN`) |
 | `llm_api_key` | No | — | OpenRouter API key. Without it, pipeline runs C1–C8 only |
 | `severity_threshold` | No | `HIGH` | Minimum severity: `LOW` / `MODERATE` / `HIGH` / `CRITICAL` |
-| `demo_mode` | No | `false` | Use bundled advisory feed (56 entries; stratified sample of 25 per run — 2 guaranteed reachable, 23 guaranteed filler) instead of live GitHub feed |
+| `demo_mode` | No | `false` | Use bundled advisory feed (77 entries; stratified sample of 25 per run — 2 guaranteed reachable, 23 guaranteed filler) instead of live GitHub feed |
 | `rescan_mode` | No | `false` | Patch verification mode — re-scans one advisory on a fix branch |
 | `rescan_ghsa_id` | No | — | GHSA ID to target in rescan mode |
 | `auto_rescan` | No | `true` | Automatically trigger the rescan workflow after a fix branch is created |

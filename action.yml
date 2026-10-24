@@ -18,7 +18,7 @@ inputs:
     required: false
     default: ''
   demo_mode:
-    description: 'Use the bundled advisory feed instead of the live GitHub feed (randomly samples 20 of 56 advisories per run)'
+    description: 'Use the bundled advisory feed instead of the live GitHub feed (stratified sample of 25 of the 77 bundled advisories per run — 2 reachable + 23 filler)'
     required: false
     default: 'false'
   discord_webhook_url:
